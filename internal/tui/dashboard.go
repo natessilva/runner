@@ -5,6 +5,7 @@ import (
 
 	"strava-fitness/internal/service"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/guptarohit/asciigraph"
@@ -16,6 +17,10 @@ type DashboardModel struct {
 	data         *service.DashboardData
 	loading      bool
 	err          error
+	viewport     viewport.Model
+	ready        bool
+	width        int
+	height       int
 }
 
 // NewDashboardModel creates a new dashboard model
@@ -46,11 +51,37 @@ type dashboardDataMsg struct {
 
 // Update handles messages
 func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case dashboardDataMsg:
 		m.loading = false
 		m.err = msg.err
 		m.data = msg.data
+		if m.ready {
+			m.viewport.SetContent(m.renderContent())
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		// Reserve space for header/nav/footer (approximately 6 lines)
+		viewportHeight := msg.Height - 6
+		if viewportHeight < 10 {
+			viewportHeight = 10
+		}
+
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, viewportHeight)
+			m.viewport.SetContent(m.renderContent())
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = viewportHeight
+			m.viewport.SetContent(m.renderContent())
+		}
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "r":
@@ -58,7 +89,13 @@ func (m DashboardModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadData
 		}
 	}
-	return m, nil
+
+	// Handle viewport scrolling
+	if m.ready {
+		m.viewport, cmd = m.viewport.Update(msg)
+	}
+
+	return m, cmd
 }
 
 // View renders the dashboard
@@ -75,6 +112,22 @@ func (m DashboardModel) View() string {
 		return "\n  No data available. Press 's' to sync with Strava."
 	}
 
+	if !m.ready {
+		return "\n  Initializing..."
+	}
+
+	// Show scroll indicator
+	scrollPct := m.viewport.ScrollPercent() * 100
+	scrollInfo := statusStyle.Render(fmt.Sprintf("  scroll: %.0f%% (j/k or arrows to scroll, r to refresh)", scrollPct))
+
+	return m.viewport.View() + "\n" + scrollInfo
+}
+
+func (m DashboardModel) renderContent() string {
+	if m.loading || m.data == nil {
+		return ""
+	}
+
 	// Build the dashboard layout
 	var sections []string
 
@@ -84,19 +137,33 @@ func (m DashboardModel) View() string {
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, fitnessCard, "  ", weekCard)
 	sections = append(sections, topRow)
 
-	// Chart
+	// Charts row 1: EF and Weekly Mileage side by side
+	var chartsRow1 []string
 	if len(m.data.EFHistory) > 2 {
-		chart := m.renderChart()
-		sections = append(sections, chart)
+		chartsRow1 = append(chartsRow1, m.renderEFChart())
+	}
+	if len(m.data.WeeklyMileage) > 0 {
+		chartsRow1 = append(chartsRow1, m.renderMileageChart())
+	}
+	if len(chartsRow1) > 0 {
+		sections = append(sections, lipgloss.JoinHorizontal(lipgloss.Top, chartsRow1...))
+	}
+
+	// Charts row 2: Cadence and HR trends
+	var chartsRow2 []string
+	if len(m.data.WeeklyAvgCadence) > 0 && hasNonZero(m.data.WeeklyAvgCadence) {
+		chartsRow2 = append(chartsRow2, m.renderCadenceChart())
+	}
+	if len(m.data.WeeklyAvgHR) > 0 && hasNonZero(m.data.WeeklyAvgHR) {
+		chartsRow2 = append(chartsRow2, m.renderHRChart())
+	}
+	if len(chartsRow2) > 0 {
+		sections = append(sections, lipgloss.JoinHorizontal(lipgloss.Top, chartsRow2...))
 	}
 
 	// Recent activities
 	activities := m.renderRecentActivities()
 	sections = append(sections, activities)
-
-	// Help
-	help := statusStyle.Render("Press 'r' to refresh, 's' to sync, '2' for activities list")
-	sections = append(sections, help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
@@ -133,17 +200,64 @@ func (m DashboardModel) renderWeekCard() string {
 	return cardStyle.Width(30).Render(lipgloss.JoinVertical(lipgloss.Left, title, content))
 }
 
-func (m DashboardModel) renderChart() string {
-	title := cardTitleStyle.Render("Efficiency Factor - Recent Trend")
+func (m DashboardModel) renderEFChart() string {
+	title := cardTitleStyle.Render("Efficiency Factor Trend")
 
-	// Create the chart
 	graph := asciigraph.Plot(m.data.EFHistory,
-		asciigraph.Height(8),
-		asciigraph.Width(60),
+		asciigraph.Height(6),
+		asciigraph.Width(35),
 		asciigraph.Precision(2),
 	)
 
 	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, title, graph))
+}
+
+func (m DashboardModel) renderMileageChart() string {
+	title := cardTitleStyle.Render("Weekly Mileage (12 weeks)")
+
+	graph := asciigraph.Plot(m.data.WeeklyMileage,
+		asciigraph.Height(6),
+		asciigraph.Width(35),
+		asciigraph.Precision(0),
+		asciigraph.Caption("miles/week"),
+	)
+
+	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, title, graph))
+}
+
+func (m DashboardModel) renderCadenceChart() string {
+	title := cardTitleStyle.Render("Weekly Avg Cadence (12 weeks)")
+
+	graph := asciigraph.Plot(m.data.WeeklyAvgCadence,
+		asciigraph.Height(6),
+		asciigraph.Width(35),
+		asciigraph.Precision(0),
+		asciigraph.Caption("spm"),
+	)
+
+	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, title, graph))
+}
+
+func (m DashboardModel) renderHRChart() string {
+	title := cardTitleStyle.Render("Weekly Avg HR (12 weeks)")
+
+	graph := asciigraph.Plot(m.data.WeeklyAvgHR,
+		asciigraph.Height(6),
+		asciigraph.Width(35),
+		asciigraph.Precision(0),
+		asciigraph.Caption("bpm"),
+	)
+
+	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, title, graph))
+}
+
+func hasNonZero(data []float64) bool {
+	for _, v := range data {
+		if v > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (m DashboardModel) renderRecentActivities() string {
@@ -213,4 +327,3 @@ func truncateName(s string, max int) string {
 	}
 	return s[:max-3] + "..."
 }
-

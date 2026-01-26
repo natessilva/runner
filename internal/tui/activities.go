@@ -146,9 +146,9 @@ func (m ActivitiesModel) View() string {
 		// Calculate pace
 		pace := "-"
 		if a.MovingTime > 0 && a.Distance > 0 {
-			paceSecsPerKm := float64(a.MovingTime) / (a.Distance / 1000)
-			paceMin := int(paceSecsPerKm) / 60
-			paceSec := int(paceSecsPerKm) % 60
+			paceSecsPerMile := float64(a.MovingTime) / (a.Distance / 1609.34)
+			paceMin := int(paceSecsPerMile) / 60
+			paceSec := int(paceSecsPerMile) % 60
 			pace = fmt.Sprintf("%d:%02d", paceMin, paceSec)
 		}
 

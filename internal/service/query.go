@@ -36,9 +36,13 @@ type DashboardData struct {
 	// Recent activities
 	RecentActivities []ActivityWithMetrics
 
-	// For chart
+	// For charts
 	EFHistory        []float64
 	EFDates          []time.Time
+	WeeklyMileage    []float64  // Last 12 weeks of mileage
+	WeeklyAvgCadence []float64  // Last 12 weeks avg cadence
+	WeeklyAvgHR      []float64  // Last 12 weeks avg HR
+	WeeklyLabels     []string   // Week labels (e.g., "Jan 06")
 }
 
 // ActivityWithMetrics combines activity and its metrics
@@ -162,6 +166,66 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 			data.EFDates = append(data.EFDates, a.StartDate)
 		}
 	}
+
+	// Build weekly stats for charts (last 12 weeks)
+	numWeeks := 12
+	now := time.Now()
+
+	// Find the start of the current week (Sunday)
+	weekday := int(now.Weekday())
+	currentWeekStart := now.AddDate(0, 0, -weekday)
+	currentWeekStart = time.Date(currentWeekStart.Year(), currentWeekStart.Month(), currentWeekStart.Day(), 0, 0, 0, 0, currentWeekStart.Location())
+
+	// Initialize weekly buckets
+	weeklyMileage := make([]float64, numWeeks)
+	weeklyCadenceSum := make([]float64, numWeeks)
+	weeklyCadenceCount := make([]int, numWeeks)
+	weeklyHRSum := make([]float64, numWeeks)
+	weeklyHRCount := make([]int, numWeeks)
+	weeklyLabels := make([]string, numWeeks)
+
+	for i := 0; i < numWeeks; i++ {
+		weekStart := currentWeekStart.AddDate(0, 0, -7*(numWeeks-1-i))
+		weeklyLabels[i] = weekStart.Format("Jan 02")
+	}
+
+	// Aggregate stats per week from all activities
+	for _, a := range allActivities {
+		// Find which week bucket this activity belongs to
+		for i := 0; i < numWeeks; i++ {
+			weekStart := currentWeekStart.AddDate(0, 0, -7*(numWeeks-1-i))
+			weekEnd := weekStart.AddDate(0, 0, 7)
+			if !a.StartDate.Before(weekStart) && a.StartDate.Before(weekEnd) {
+				weeklyMileage[i] += a.Distance / 1609.34 // Convert to miles
+				if a.AverageCadence != nil && *a.AverageCadence > 0 {
+					weeklyCadenceSum[i] += *a.AverageCadence * 2 // Strava reports single-leg, double for SPM
+					weeklyCadenceCount[i]++
+				}
+				if a.AverageHeartrate != nil && *a.AverageHeartrate > 0 {
+					weeklyHRSum[i] += *a.AverageHeartrate
+					weeklyHRCount[i]++
+				}
+				break
+			}
+		}
+	}
+
+	// Calculate averages
+	weeklyAvgCadence := make([]float64, numWeeks)
+	weeklyAvgHR := make([]float64, numWeeks)
+	for i := 0; i < numWeeks; i++ {
+		if weeklyCadenceCount[i] > 0 {
+			weeklyAvgCadence[i] = weeklyCadenceSum[i] / float64(weeklyCadenceCount[i])
+		}
+		if weeklyHRCount[i] > 0 {
+			weeklyAvgHR[i] = weeklyHRSum[i] / float64(weeklyHRCount[i])
+		}
+	}
+
+	data.WeeklyMileage = weeklyMileage
+	data.WeeklyAvgCadence = weeklyAvgCadence
+	data.WeeklyAvgHR = weeklyAvgHR
+	data.WeeklyLabels = weeklyLabels
 
 	return data, nil
 }
