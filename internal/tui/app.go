@@ -15,6 +15,7 @@ type Screen int
 const (
 	ScreenDashboard Screen = iota
 	ScreenActivities
+	ScreenStats
 	ScreenSync
 	ScreenHelp
 )
@@ -27,6 +28,7 @@ type App struct {
 	// Screen models
 	dashboard  DashboardModel
 	activities ActivitiesModel
+	stats      StatsModel
 	syncScreen SyncModel
 	help       HelpModel
 
@@ -52,8 +54,9 @@ func NewApp(db *store.DB, stravaClient *strava.Client, syncService *service.Sync
 		queryService: queryService,
 		syncService:  syncService,
 		stravaClient: stravaClient,
-		dashboard:    NewDashboardModel(queryService),
+		dashboard:    NewDashboardModel(queryService, 0, 0),
 		activities:   NewActivitiesModel(queryService),
+		stats:        NewStatsModel(queryService),
 		syncScreen:   NewSyncModel(syncService),
 		help:         NewHelpModel(),
 	}
@@ -75,13 +78,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Quit
 			case "1":
 				a.screen = ScreenDashboard
+				a.dashboard = NewDashboardModel(a.queryService, a.width, a.height)
 				return a, a.dashboard.Init()
 			case "2":
 				a.screen = ScreenActivities
 				return a, a.activities.Init()
-			case "3", "s":
-				a.screen = ScreenSync
-				return a, a.syncScreen.Init()
+			case "3":
+				a.screen = ScreenStats
+				return a, a.stats.Init()
+			case "4", "s":
+				if a.screen != ScreenSync {
+					a.screen = ScreenSync
+					return a, a.syncScreen.Init()
+				}
+				// Let 's' fall through to sync screen when already there
 			case "?":
 				a.prevScreen = a.screen
 				a.screen = ScreenHelp
@@ -101,7 +111,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SyncCompleteMsg:
 		// Refresh dashboard after sync
 		a.screen = ScreenDashboard
-		a.dashboard = NewDashboardModel(a.queryService)
+		a.dashboard = NewDashboardModel(a.queryService, a.width, a.height)
 		return a, a.dashboard.Init()
 	}
 
@@ -116,6 +126,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var m tea.Model
 		m, cmd = a.activities.Update(msg)
 		a.activities = m.(ActivitiesModel)
+	case ScreenStats:
+		var m tea.Model
+		m, cmd = a.stats.Update(msg)
+		a.stats = m.(StatsModel)
 	case ScreenSync:
 		var m tea.Model
 		m, cmd = a.syncScreen.Update(msg)
@@ -140,6 +154,8 @@ func (a *App) View() string {
 		content = a.dashboard.View()
 	case ScreenActivities:
 		content = a.activities.View()
+	case ScreenStats:
+		content = a.stats.View()
 	case ScreenSync:
 		content = a.syncScreen.View()
 	case ScreenHelp:
@@ -163,7 +179,8 @@ func (a *App) renderNav() string {
 	}{
 		{"1", "Dashboard", ScreenDashboard},
 		{"2", "Activities", ScreenActivities},
-		{"3", "Sync", ScreenSync},
+		{"3", "Stats", ScreenStats},
+		{"4", "Sync", ScreenSync},
 		{"?", "Help", ScreenHelp},
 	}
 

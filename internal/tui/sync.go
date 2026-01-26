@@ -15,7 +15,6 @@ import (
 type SyncModel struct {
 	syncService *service.SyncService
 	syncing     bool
-	progress    service.SyncProgress
 	result      *service.SyncResult
 	err         error
 	done        bool
@@ -33,11 +32,6 @@ func (m SyncModel) Init() tea.Cmd {
 	return nil
 }
 
-// SyncProgressMsg is sent during sync to update progress
-type SyncProgressMsg struct {
-	Progress service.SyncProgress
-}
-
 // SyncDoneMsg is sent when sync finishes
 type SyncDoneMsg struct {
 	Result *service.SyncResult
@@ -47,9 +41,6 @@ type SyncDoneMsg struct {
 // Update handles messages
 func (m SyncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case SyncProgressMsg:
-		m.progress = msg.Progress
-
 	case SyncDoneMsg:
 		m.syncing = false
 		m.done = true
@@ -73,15 +64,11 @@ func (m SyncModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m SyncModel) runSync() tea.Msg {
-	progressChan := make(chan service.SyncProgress, 100)
 	ctx := context.Background()
 
-	var result *service.SyncResult
-	var syncErr error
-
-	// Start sync in goroutine - note: we can't send progress updates in real-time
-	// in this simple model, so we just run to completion
-	result, syncErr = m.syncService.SyncAll(ctx, progressChan)
+	// Pass nil for progress channel - we're not showing real-time updates
+	// (the channel would block if buffer fills up)
+	result, syncErr := m.syncService.SyncAll(ctx, nil)
 
 	return SyncDoneMsg{Result: result, Err: syncErr}
 }
@@ -137,43 +124,15 @@ func (m SyncModel) renderStartPrompt() string {
 
 func (m SyncModel) renderProgress() string {
 	var lines []string
-	p := m.progress
 
 	lines = append(lines, "")
-	lines = append(lines, "  Syncing...")
+	lines = append(lines, "  Syncing with Strava...")
 	lines = append(lines, "")
-
-	// Phase indicator
-	phases := []string{"activities", "streams", "metrics"}
-	phaseNames := map[string]string{
-		"activities": "Fetching Activities",
-		"streams":    "Downloading Streams",
-		"metrics":    "Computing Metrics",
-	}
-
-	for _, phase := range phases {
-		prefix := "  "
-		style := statusStyle
-		if phase == p.Phase {
-			prefix = "> "
-			style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7C3AED"))
-		}
-		lines = append(lines, style.Render(prefix+phaseNames[phase]))
-	}
-
+	lines = append(lines, "  1. Fetching new activities")
+	lines = append(lines, "  2. Downloading stream data")
+	lines = append(lines, "  3. Computing fitness metrics")
 	lines = append(lines, "")
-
-	// Current phase progress
-	if p.Total > 0 {
-		pct := float64(p.Completed) / float64(p.Total)
-		bar := RenderProgressBar(pct, 40)
-		lines = append(lines, fmt.Sprintf("  %s  %d/%d", bar, p.Completed, p.Total))
-	}
-
-	if p.CurrentActivity != "" {
-		lines = append(lines, "")
-		lines = append(lines, statusStyle.Render("  "+p.CurrentActivity))
-	}
+	lines = append(lines, statusStyle.Render("  This may take a moment..."))
 
 	return strings.Join(lines, "\n")
 }

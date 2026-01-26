@@ -106,10 +106,13 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 		}
 	}
 
-	// Calculate this week's stats
-	weekStart := time.Now().AddDate(0, 0, -7)
+	// Calculate this week's stats (week starts Monday)
+	now := time.Now()
+	daysFromMonday := (int(now.Weekday()) + 6) % 7 // Monday = 0
+	weekStart := now.AddDate(0, 0, -daysFromMonday)
+	weekStart = time.Date(weekStart.Year(), weekStart.Month(), weekStart.Day(), 0, 0, 0, 0, weekStart.Location())
 	for i, a := range activities {
-		if a.StartDate.After(weekStart) {
+		if !a.StartDate.Before(weekStart) {
 			data.WeekRunCount++
 			data.WeekDistance += a.Distance / 1609.34 // Convert to miles
 			data.WeekTime += a.MovingTime
@@ -122,11 +125,10 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 		data.WeekAvgEF /= float64(data.WeekRunCount)
 	}
 
-	// Calculate CTL/ATL/TSB
+	// Calculate CTL/ATL/TSB using pre-computed TRIMP values
 	allActivities, allMetrics, err := q.store.GetActivitiesWithMetrics(200, 0)
 	if err == nil && len(allActivities) > 0 {
 		var dailyLoads []analysis.DailyLoad
-		zones := analysis.DefaultZones()
 
 		for i, a := range allActivities {
 			if allMetrics[i].TRIMP != nil {
@@ -134,17 +136,8 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 					Date:  a.StartDate,
 					TRIMP: *allMetrics[i].TRIMP,
 				})
-			} else {
-				// Estimate TRIMP from activity data
-				streams, _ := q.store.GetStreams(a.ID)
-				trimp := analysis.TRIMP(a, streams, zones)
-				if trimp > 0 {
-					dailyLoads = append(dailyLoads, analysis.DailyLoad{
-						Date:  a.StartDate,
-						TRIMP: trimp,
-					})
-				}
 			}
+			// Skip activities without TRIMP - they'll get computed on next sync
 		}
 
 		if len(dailyLoads) > 0 {
@@ -169,11 +162,9 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 
 	// Build weekly stats for charts (last 12 weeks)
 	numWeeks := 12
-	now := time.Now()
 
-	// Find the start of the current week (Sunday)
-	weekday := int(now.Weekday())
-	currentWeekStart := now.AddDate(0, 0, -weekday)
+	// Find the start of the current week (Monday) - reuse 'now' from above
+	currentWeekStart := now.AddDate(0, 0, -daysFromMonday)
 	currentWeekStart = time.Date(currentWeekStart.Year(), currentWeekStart.Month(), currentWeekStart.Day(), 0, 0, 0, 0, currentWeekStart.Location())
 
 	// Initialize weekly buckets
@@ -189,8 +180,14 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 		weeklyLabels[i] = weekStart.Format("Jan 02")
 	}
 
-	// Aggregate stats per week from all activities using stream data
+	// Aggregate stats per week from activities in the 12-week window
+	twelveWeeksAgo := currentWeekStart.AddDate(0, 0, -7*(numWeeks-1))
 	for _, a := range allActivities {
+		// Skip activities outside the 12-week window
+		if a.StartDate.Before(twelveWeeksAgo) {
+			continue
+		}
+
 		// Find which week bucket this activity belongs to
 		for i := 0; i < numWeeks; i++ {
 			weekStart := currentWeekStart.AddDate(0, 0, -7*(numWeeks-1-i))
@@ -282,4 +279,113 @@ func (q *QueryService) GetActivityDetail(id int64) (*ActivityWithMetrics, []stor
 // GetTotalActivityCount returns the total number of activities
 func (q *QueryService) GetTotalActivityCount() (int, error) {
 	return q.store.CountActivities()
+}
+
+// PeriodStats holds aggregated stats for a time period
+type PeriodStats struct {
+	PeriodStart time.Time
+	PeriodLabel string
+	RunCount    int
+	TotalMiles  float64
+	AvgHR       float64
+	AvgSPM      float64
+}
+
+// GetPeriodStats returns aggregated stats by week or month
+func (q *QueryService) GetPeriodStats(periodType string, numPeriods int) ([]PeriodStats, error) {
+	// Get all activities
+	activities, _, err := q.store.GetActivitiesWithMetrics(500, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	stats := make([]PeriodStats, numPeriods)
+
+	// Initialize periods
+	for i := 0; i < numPeriods; i++ {
+		var periodStart time.Time
+		var label string
+
+		if periodType == "weekly" {
+			// Find Monday of current week
+			daysFromMonday := (int(now.Weekday()) + 6) % 7 // Monday = 0
+			currentMonday := now.AddDate(0, 0, -daysFromMonday)
+			currentMonday = time.Date(currentMonday.Year(), currentMonday.Month(), currentMonday.Day(), 0, 0, 0, 0, currentMonday.Location())
+			periodStart = currentMonday.AddDate(0, 0, -7*(numPeriods-1-i))
+			label = periodStart.Format("Jan 02")
+		} else {
+			// Monthly - first of month
+			currentFirst := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+			periodStart = currentFirst.AddDate(0, -(numPeriods-1-i), 0)
+			label = periodStart.Format("Jan 2006")
+		}
+
+		stats[i] = PeriodStats{
+			PeriodStart: periodStart,
+			PeriodLabel: label,
+		}
+	}
+
+	// Aggregate activities into periods
+	for _, a := range activities {
+		// Find which period this activity belongs to
+		for i := 0; i < numPeriods; i++ {
+			var periodEnd time.Time
+			if periodType == "weekly" {
+				periodEnd = stats[i].PeriodStart.AddDate(0, 0, 7)
+			} else {
+				periodEnd = stats[i].PeriodStart.AddDate(0, 1, 0)
+			}
+
+			if !a.StartDate.Before(stats[i].PeriodStart) && a.StartDate.Before(periodEnd) {
+				stats[i].RunCount++
+				stats[i].TotalMiles += a.Distance / 1609.34
+
+				// Get stream data for accurate HR and cadence
+				streams, err := q.store.GetStreams(a.ID)
+				if err == nil && len(streams) > 0 {
+					var hrSum float64
+					var hrCount int
+					var cadSum float64
+					var cadCount int
+
+					for _, p := range streams {
+						if p.Heartrate != nil && *p.Heartrate > 50 && *p.Heartrate < 220 {
+							hrSum += float64(*p.Heartrate)
+							hrCount++
+						}
+						if p.Cadence != nil && *p.Cadence > 0 {
+							cadSum += float64(*p.Cadence) * 2
+							cadCount++
+						}
+					}
+
+					// Weighted contribution to period average
+					if hrCount > 0 {
+						activityAvgHR := hrSum / float64(hrCount)
+						// Use running weighted average
+						if stats[i].AvgHR == 0 {
+							stats[i].AvgHR = activityAvgHR
+						} else {
+							n := float64(stats[i].RunCount)
+							stats[i].AvgHR = stats[i].AvgHR*(n-1)/n + activityAvgHR/n
+						}
+					}
+					if cadCount > 0 {
+						activityAvgSPM := cadSum / float64(cadCount)
+						if stats[i].AvgSPM == 0 {
+							stats[i].AvgSPM = activityAvgSPM
+						} else {
+							n := float64(stats[i].RunCount)
+							stats[i].AvgSPM = stats[i].AvgSPM*(n-1)/n + activityAvgSPM/n
+						}
+					}
+				}
+				break
+			}
+		}
+	}
+
+	return stats, nil
 }

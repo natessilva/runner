@@ -36,7 +36,8 @@ func (m HelpModel) View() string {
 	navSection := m.renderSection("Navigation", []keyHelp{
 		{"1", "Dashboard"},
 		{"2", "Activities list"},
-		{"3 or s", "Sync screen"},
+		{"3", "Period stats"},
+		{"4 or s", "Sync screen"},
 		{"?", "Help (this screen)"},
 		{"q", "Quit"},
 		{"esc", "Back / close help"},
@@ -58,6 +59,14 @@ func (m HelpModel) View() string {
 		{"r", "Refresh list"},
 	})
 	sections = append(sections, actSection)
+
+	// Stats keys
+	statsSection := m.renderSection("Period Stats", []keyHelp{
+		{"w", "Weekly view"},
+		{"m", "Monthly view"},
+		{"r", "Refresh"},
+	})
+	sections = append(sections, statsSection)
 
 	// Sync keys
 	syncSection := m.renderSection("Sync Screen", []keyHelp{
@@ -95,27 +104,43 @@ func (m HelpModel) renderMetricsHelp() string {
 
 	lines = append(lines, "")
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#10B981")).Render("Metrics Explained"))
-	lines = append(lines, "")
-
-	metrics := []struct {
-		name string
-		desc string
-	}{
-		{"EF (Efficiency Factor)", "Speed per heartbeat. Higher = more efficient aerobic system."},
-		{"Decoupling", "HR drift vs pace over time. <5% = good aerobic base."},
-		{"TRIMP", "Training impulse - combines duration and intensity."},
-		{"CTL (Fitness)", "Chronic training load - 42 day avg of TRIMP."},
-		{"ATL (Fatigue)", "Acute training load - 7 day avg of TRIMP."},
-		{"TSB (Form)", "Training stress balance = CTL - ATL. Positive = fresh."},
-	}
 
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F59E0B"))
 
-	for _, metric := range metrics {
-		lines = append(lines, "  "+helpKeyStyle.Render(metric.name))
-		lines = append(lines, "  "+mutedStyle.Render(metric.desc))
-		lines = append(lines, "")
-	}
+	// EF
+	lines = append(lines, "")
+	lines = append(lines, "  "+helpKeyStyle.Render("EF (Efficiency Factor)")+" "+valueStyle.Render("Range: 1.0-2.0+"))
+	lines = append(lines, "  "+mutedStyle.Render("Speed per heartbeat - higher is better."))
+	lines = append(lines, "  "+mutedStyle.Render("Track over months: rising EF at same pace = improving fitness."))
+
+	// Decoupling
+	lines = append(lines, "")
+	lines = append(lines, "  "+helpKeyStyle.Render("Aerobic Decoupling")+" "+valueStyle.Render("Target: <5%"))
+	lines = append(lines, "  "+mutedStyle.Render("HR drift during a run - lower is better."))
+	lines = append(lines, "  "+mutedStyle.Render("<5% = strong aerobic base, >10% = needs more base building."))
+
+	// TRIMP
+	lines = append(lines, "")
+	lines = append(lines, "  "+helpKeyStyle.Render("TRIMP (Training Impulse)")+" "+valueStyle.Render("Range: 30-300+"))
+	lines = append(lines, "  "+mutedStyle.Render("Training load = duration x intensity. Not good or bad."))
+	lines = append(lines, "  "+mutedStyle.Render("Easy 30min ~40, hard 60min ~150. Use to compare workouts."))
+
+	// CTL/ATL/TSB
+	lines = append(lines, "")
+	lines = append(lines, "  "+helpKeyStyle.Render("CTL (Fitness)"))
+	lines = append(lines, "  "+mutedStyle.Render("42-day average of TRIMP. Your chronic training load."))
+
+	lines = append(lines, "")
+	lines = append(lines, "  "+helpKeyStyle.Render("ATL (Fatigue)"))
+	lines = append(lines, "  "+mutedStyle.Render("7-day average of TRIMP. Your recent training load."))
+
+	lines = append(lines, "")
+	lines = append(lines, "  "+helpKeyStyle.Render("TSB (Form)")+" "+valueStyle.Render("= CTL - ATL"))
+	lines = append(lines, "  "+mutedStyle.Render("Positive = fresh/recovered, negative = fatigued."))
+	lines = append(lines, "  "+mutedStyle.Render("Race ready: +5 to +15. Heavy training: -10 to -30."))
+
+	lines = append(lines, "")
 
 	return strings.Join(lines, "\n")
 }

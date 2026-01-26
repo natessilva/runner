@@ -24,11 +24,25 @@ type DashboardModel struct {
 }
 
 // NewDashboardModel creates a new dashboard model
-func NewDashboardModel(qs *service.QueryService) DashboardModel {
-	return DashboardModel{
+func NewDashboardModel(qs *service.QueryService, width, height int) DashboardModel {
+	m := DashboardModel{
 		queryService: qs,
 		loading:      true,
+		width:        width,
+		height:       height,
 	}
+
+	// Initialize viewport if we have dimensions
+	if width > 0 && height > 0 {
+		viewportHeight := height - 6
+		if viewportHeight < 10 {
+			viewportHeight = 10
+		}
+		m.viewport = viewport.New(width, viewportHeight)
+		m.ready = true
+	}
+
+	return m
 }
 
 // Init initializes the dashboard
@@ -112,8 +126,9 @@ func (m DashboardModel) View() string {
 		return "\n  No data available. Press 's' to sync with Strava."
 	}
 
+	// If viewport not ready yet, show content directly without scrolling
 	if !m.ready {
-		return "\n  Initializing..."
+		return m.renderContent() + "\n" + statusStyle.Render("  r to refresh, s to sync")
 	}
 
 	// Show scroll indicator
