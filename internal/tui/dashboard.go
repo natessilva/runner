@@ -215,7 +215,8 @@ func (m DashboardModel) renderEFChart() string {
 func (m DashboardModel) renderMileageChart() string {
 	title := cardTitleStyle.Render("Weekly Mileage (12 weeks)")
 
-	graph := asciigraph.Plot(m.data.WeeklyMileage,
+	data := trimTrailingZeros(m.data.WeeklyMileage)
+	graph := asciigraph.Plot(data,
 		asciigraph.Height(6),
 		asciigraph.Width(35),
 		asciigraph.Precision(0),
@@ -228,7 +229,8 @@ func (m DashboardModel) renderMileageChart() string {
 func (m DashboardModel) renderCadenceChart() string {
 	title := cardTitleStyle.Render("Weekly Avg Cadence (12 weeks)")
 
-	graph := asciigraph.Plot(m.data.WeeklyAvgCadence,
+	data := trimTrailingZeros(m.data.WeeklyAvgCadence)
+	graph := asciigraph.Plot(data,
 		asciigraph.Height(6),
 		asciigraph.Width(35),
 		asciigraph.Precision(0),
@@ -241,7 +243,8 @@ func (m DashboardModel) renderCadenceChart() string {
 func (m DashboardModel) renderHRChart() string {
 	title := cardTitleStyle.Render("Weekly Avg HR (12 weeks)")
 
-	graph := asciigraph.Plot(m.data.WeeklyAvgHR,
+	data := trimTrailingZeros(m.data.WeeklyAvgHR)
+	graph := asciigraph.Plot(data,
 		asciigraph.Height(6),
 		asciigraph.Width(35),
 		asciigraph.Precision(0),
@@ -258,6 +261,18 @@ func hasNonZero(data []float64) bool {
 		}
 	}
 	return false
+}
+
+// trimTrailingZeros removes trailing zero values from a slice
+func trimTrailingZeros(data []float64) []float64 {
+	end := len(data)
+	for end > 0 && data[end-1] == 0 {
+		end--
+	}
+	if end == 0 {
+		return data // Return original if all zeros
+	}
+	return data[:end]
 }
 
 func (m DashboardModel) renderRecentActivities() string {

@@ -189,7 +189,7 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 		weeklyLabels[i] = weekStart.Format("Jan 02")
 	}
 
-	// Aggregate stats per week from all activities
+	// Aggregate stats per week from all activities using stream data
 	for _, a := range allActivities {
 		// Find which week bucket this activity belongs to
 		for i := 0; i < numWeeks; i++ {
@@ -197,13 +197,20 @@ func (q *QueryService) GetDashboardData() (*DashboardData, error) {
 			weekEnd := weekStart.AddDate(0, 0, 7)
 			if !a.StartDate.Before(weekStart) && a.StartDate.Before(weekEnd) {
 				weeklyMileage[i] += a.Distance / 1609.34 // Convert to miles
-				if a.AverageCadence != nil && *a.AverageCadence > 0 {
-					weeklyCadenceSum[i] += *a.AverageCadence * 2 // Strava reports single-leg, double for SPM
-					weeklyCadenceCount[i]++
-				}
-				if a.AverageHeartrate != nil && *a.AverageHeartrate > 0 {
-					weeklyHRSum[i] += *a.AverageHeartrate
-					weeklyHRCount[i]++
+
+				// Get stream data for HR and cadence calculations
+				streams, err := q.store.GetStreams(a.ID)
+				if err == nil && len(streams) > 0 {
+					for _, p := range streams {
+						if p.Heartrate != nil && *p.Heartrate > 50 && *p.Heartrate < 220 {
+							weeklyHRSum[i] += float64(*p.Heartrate)
+							weeklyHRCount[i]++
+						}
+						if p.Cadence != nil && *p.Cadence > 0 {
+							weeklyCadenceSum[i] += float64(*p.Cadence) * 2 // Strava reports single-leg
+							weeklyCadenceCount[i]++
+						}
+					}
 				}
 				break
 			}
