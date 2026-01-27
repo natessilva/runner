@@ -16,6 +16,10 @@ type StatsModel struct {
 	periodType   string // "weekly" or "monthly"
 	loading      bool
 	err          error
+	cursor       int
+	offset       int
+	pageSize     int
+	total        int
 }
 
 // NewStatsModel creates a new stats model
@@ -24,6 +28,7 @@ func NewStatsModel(qs *service.QueryService) StatsModel {
 		queryService: qs,
 		periodType:   "weekly",
 		loading:      true,
+		pageSize:     15,
 	}
 }
 
@@ -38,9 +43,10 @@ type statsLoadedMsg struct {
 }
 
 func (m StatsModel) loadStats() tea.Msg {
-	numPeriods := 12
+	// Load all historical data
+	numPeriods := 104 // 2 years of weeks
 	if m.periodType == "monthly" {
-		numPeriods = 6
+		numPeriods = 36 // 3 years of months
 	}
 
 	stats, err := m.queryService.GetPeriodStats(m.periodType, numPeriods)
@@ -54,6 +60,9 @@ func (m StatsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		m.stats = msg.stats
+		m.total = len(msg.stats)
+		m.cursor = 0
+		m.offset = 0
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -61,20 +70,60 @@ func (m StatsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.periodType != "weekly" {
 				m.periodType = "weekly"
 				m.loading = true
+				m.cursor = 0
+				m.offset = 0
 				return m, m.loadStats
 			}
 		case "m":
 			if m.periodType != "monthly" {
 				m.periodType = "monthly"
 				m.loading = true
+				m.cursor = 0
+				m.offset = 0
 				return m, m.loadStats
 			}
 		case "r":
 			m.loading = true
 			return m, m.loadStats
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			} else if m.offset > 0 {
+				m.offset -= m.pageSize
+				m.cursor = m.pageSize - 1
+			}
+		case "down", "j":
+			visibleCount := m.getVisibleCount()
+			if m.cursor < visibleCount-1 {
+				m.cursor++
+			} else if m.offset+visibleCount < m.total {
+				m.offset += m.pageSize
+				m.cursor = 0
+			}
+		case "pgup":
+			if m.offset > 0 {
+				m.offset -= m.pageSize
+				if m.offset < 0 {
+					m.offset = 0
+				}
+				m.cursor = 0
+			}
+		case "pgdown":
+			if m.offset+m.pageSize < m.total {
+				m.offset += m.pageSize
+				m.cursor = 0
+			}
 		}
 	}
 	return m, nil
+}
+
+func (m StatsModel) getVisibleCount() int {
+	remaining := m.total - m.offset
+	if remaining > m.pageSize {
+		return m.pageSize
+	}
+	return remaining
 }
 
 // View renders the stats screen
@@ -89,22 +138,56 @@ func (m StatsModel) View() string {
 
 	var sections []string
 
-	// Title
+	// Title with pagination info
 	periodLabel := "Weekly"
 	if m.periodType == "monthly" {
 		periodLabel = "Monthly"
 	}
-	title := cardTitleStyle.Render(fmt.Sprintf("Period Stats (%s)", periodLabel))
+
+	// Filter to periods with data
+	var periodsWithData []service.PeriodStats
+	for _, s := range m.stats {
+		if s.RunCount > 0 {
+			periodsWithData = append(periodsWithData, s)
+		}
+	}
+	m.total = len(periodsWithData)
+
+	if m.total == 0 {
+		title := cardTitleStyle.Render(fmt.Sprintf("Period Stats (%s)", periodLabel))
+		sections = append(sections, title)
+		sections = append(sections, "\n  No data available. Sync some activities first.")
+		return lipgloss.JoinVertical(lipgloss.Left, sections...)
+	}
+
+	startNum := m.offset + 1
+	endNum := m.offset + m.getVisibleCount()
+	if endNum > m.total {
+		endNum = m.total
+	}
+
+	title := cardTitleStyle.Render(fmt.Sprintf("Period Stats (%s) - %d-%d of %d", periodLabel, startNum, endNum, m.total))
 	sections = append(sections, title)
 
 	// Header
-	header := tableHeaderStyle.Render(fmt.Sprintf("%-12s  %5s  %8s  %7s  %7s",
+	header := tableHeaderStyle.Render(fmt.Sprintf("   %-12s  %5s  %8s  %7s  %7s",
 		"Period", "Runs", "Miles", "Avg HR", "Avg SPM"))
 	sections = append(sections, header)
 
-	// Rows - show most recent first
-	for i := len(m.stats) - 1; i >= 0; i-- {
-		s := m.stats[i]
+	// Reverse the data so most recent is first
+	reversed := make([]service.PeriodStats, len(periodsWithData))
+	for i, s := range periodsWithData {
+		reversed[len(periodsWithData)-1-i] = s
+	}
+
+	// Rows for current page
+	endIdx := m.offset + m.pageSize
+	if endIdx > len(reversed) {
+		endIdx = len(reversed)
+	}
+
+	for i := m.offset; i < endIdx; i++ {
+		s := reversed[i]
 
 		hrStr := "-"
 		if s.AvgHR > 0 {
@@ -121,18 +204,29 @@ func (m StatsModel) View() string {
 			milesStr = fmt.Sprintf("%.1f", s.TotalMiles)
 		}
 
-		row := tableRowStyle.Render(fmt.Sprintf("%-12s  %5d  %8s  %7s  %7s",
+		cursor := "  "
+		if i-m.offset == m.cursor {
+			cursor = "> "
+		}
+
+		row := fmt.Sprintf("%s%-12s  %5d  %8s  %7s  %7s",
+			cursor,
 			s.PeriodLabel,
 			s.RunCount,
 			milesStr,
 			hrStr,
 			spmStr,
-		))
-		sections = append(sections, row)
+		)
+
+		if i-m.offset == m.cursor {
+			sections = append(sections, tableSelectedStyle.Render(row))
+		} else {
+			sections = append(sections, tableRowStyle.Render(row))
+		}
 	}
 
 	// Help
-	help := statusStyle.Render("\n  'w' weekly, 'm' monthly, 'r' refresh, '1' dashboard")
+	help := statusStyle.Render("\n  w/m: weekly/monthly  j/k: navigate  pgup/pgdn: page  r: refresh")
 	sections = append(sections, help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)

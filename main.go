@@ -104,7 +104,7 @@ func run() error {
 	// Create services
 	stravaClient := strava.NewClient(tokenSource)
 	syncSvc := service.NewSyncService(stravaClient, db)
-	querySvc := service.NewQueryService(db)
+	querySvc := service.NewQueryService(db, cfg.Athlete.MaxHR)
 
 	// Launch TUI
 	app := tui.NewApp(db, stravaClient, syncSvc, querySvc)

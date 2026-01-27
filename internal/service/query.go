@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"strava-fitness/internal/analysis"
@@ -10,11 +11,15 @@ import (
 // QueryService provides read-only queries for the TUI
 type QueryService struct {
 	store *store.DB
+	maxHR float64 // Configured max HR for zone calculations
 }
 
 // NewQueryService creates a new query service
-func NewQueryService(store *store.DB) *QueryService {
-	return &QueryService{store: store}
+func NewQueryService(store *store.DB, maxHR float64) *QueryService {
+	if maxHR == 0 {
+		maxHR = 185 // Default
+	}
+	return &QueryService{store: store, maxHR: maxHR}
 }
 
 // DashboardData contains all data needed for the dashboard
@@ -279,6 +284,297 @@ func (q *QueryService) GetActivityDetail(id int64) (*ActivityWithMetrics, []stor
 // GetTotalActivityCount returns the total number of activities
 func (q *QueryService) GetTotalActivityCount() (int, error) {
 	return q.store.CountActivities()
+}
+
+// MileSplit represents stats for a single mile
+type MileSplit struct {
+	Mile     int
+	Duration int     // seconds
+	Pace     string  // "M:SS" format
+	AvgHR    float64
+	AvgCad   float64
+}
+
+// HRZoneTime represents time spent in an HR zone
+type HRZoneTime struct {
+	Zone    int
+	Name    string
+	Seconds int
+	Percent float64
+}
+
+// ActivityDetail contains detailed info for a single activity
+type ActivityDetail struct {
+	Activity      ActivityWithMetrics
+	Splits        []MileSplit
+	HRZones       []HRZoneTime
+	PaceData      []float64 // pace per minute for charting (min/mile)
+	HRData        []float64 // HR per minute for charting
+	TimeLabels    []string  // time labels for chart
+	AvgHR         float64
+	AvgCadence    float64
+	MaxHR         int // Observed max HR during this activity
+	ConfiguredMax int // Configured max HR used for zone calculations
+}
+
+// GetActivityDetailByID returns detailed analysis for a single activity
+func (q *QueryService) GetActivityDetailByID(id int64) (*ActivityDetail, error) {
+	activity, err := q.store.GetActivity(id)
+	if err != nil {
+		return nil, err
+	}
+
+	metrics, _ := q.store.GetActivityMetrics(id)
+	streams, err := q.store.GetStreams(id)
+	if err != nil {
+		return nil, err
+	}
+
+	detail := &ActivityDetail{
+		Activity: ActivityWithMetrics{
+			Activity: *activity,
+		},
+		ConfiguredMax: int(q.maxHR),
+	}
+	if metrics != nil {
+		detail.Activity.Metrics = *metrics
+	}
+
+	if len(streams) == 0 {
+		return detail, nil
+	}
+
+	// Calculate splits, HR zones, and chart data from streams
+	detail.calculateFromStreams(streams, activity.Distance, int(q.maxHR))
+
+	return detail, nil
+}
+
+func (d *ActivityDetail) calculateFromStreams(streams []store.StreamPoint, totalDistance float64, configuredMaxHR int) {
+	// Mile splits
+	mileInMeters := 1609.34
+	currentMile := 1
+	mileStartIdx := 0
+	var lastDistance float64
+
+	for i, p := range streams {
+		if p.Distance == nil {
+			continue
+		}
+
+		dist := *p.Distance
+		mileThreshold := float64(currentMile) * mileInMeters
+
+		if dist >= mileThreshold && lastDistance < mileThreshold {
+			// Completed a mile
+			split := d.calculateSplit(streams, mileStartIdx, i, currentMile)
+			d.Splits = append(d.Splits, split)
+			currentMile++
+			mileStartIdx = i
+		}
+		lastDistance = dist
+	}
+
+	// Add final partial mile if significant (> 0.1 mile)
+	remainingDist := totalDistance - float64(currentMile-1)*mileInMeters
+	if remainingDist > 160 && mileStartIdx < len(streams)-1 {
+		split := d.calculateSplit(streams, mileStartIdx, len(streams)-1, currentMile)
+		// Adjust pace for partial mile
+		if remainingDist > 0 {
+			partialMiles := remainingDist / mileInMeters
+			split.Duration = int(float64(split.Duration) / partialMiles)
+			split.Pace = formatPace(split.Duration)
+		}
+		d.Splits = append(d.Splits, split)
+	}
+
+	// HR zones (using 5-zone model based on configured max HR)
+	// Also record observed max HR during this activity
+	observedMaxHR := 0
+	for _, p := range streams {
+		if p.Heartrate != nil && *p.Heartrate > observedMaxHR {
+			observedMaxHR = *p.Heartrate
+		}
+	}
+	d.MaxHR = observedMaxHR
+
+	// Use configured max HR for zone calculations (not the activity's max)
+	if configuredMaxHR > 0 {
+		d.HRZones = d.calculateHRZones(streams, configuredMaxHR)
+	}
+
+	// Calculate averages and chart data
+	var hrSum, cadSum float64
+	var hrCount, cadCount int
+
+	// Sample data every 60 seconds for charts
+	minuteData := make(map[int]struct {
+		paceSum   float64
+		paceCount int
+		hrSum     float64
+		hrCount   int
+	})
+
+	var prevDist float64
+	var prevTime int
+	for _, p := range streams {
+		if p.Heartrate != nil && *p.Heartrate > 50 && *p.Heartrate < 220 {
+			hrSum += float64(*p.Heartrate)
+			hrCount++
+		}
+		if p.Cadence != nil && *p.Cadence > 0 {
+			cadSum += float64(*p.Cadence) * 2
+			cadCount++
+		}
+
+		// Chart data - group by minute
+		minute := p.TimeOffset / 60
+		if p.Distance != nil && p.TimeOffset > prevTime {
+			distDelta := *p.Distance - prevDist
+			timeDelta := float64(p.TimeOffset - prevTime)
+			if distDelta > 0 && timeDelta > 0 {
+				// Calculate pace in min/mile
+				speedMPS := distDelta / timeDelta
+				if speedMPS > 0.5 { // Filter out stopped time
+					paceMinPerMile := (1609.34 / speedMPS) / 60
+					entry := minuteData[minute]
+					entry.paceSum += paceMinPerMile
+					entry.paceCount++
+					minuteData[minute] = entry
+				}
+			}
+			prevDist = *p.Distance
+			prevTime = p.TimeOffset
+		}
+		if p.Heartrate != nil && *p.Heartrate > 50 {
+			entry := minuteData[minute]
+			entry.hrSum += float64(*p.Heartrate)
+			entry.hrCount++
+			minuteData[minute] = entry
+		}
+	}
+
+	if hrCount > 0 {
+		d.AvgHR = hrSum / float64(hrCount)
+	}
+	if cadCount > 0 {
+		d.AvgCadence = cadSum / float64(cadCount)
+	}
+
+	// Build chart arrays
+	maxMinute := 0
+	for m := range minuteData {
+		if m > maxMinute {
+			maxMinute = m
+		}
+	}
+
+	for m := 0; m <= maxMinute; m++ {
+		entry := minuteData[m]
+		if entry.paceCount > 0 {
+			d.PaceData = append(d.PaceData, entry.paceSum/float64(entry.paceCount))
+		} else if len(d.PaceData) > 0 {
+			d.PaceData = append(d.PaceData, d.PaceData[len(d.PaceData)-1]) // carry forward
+		} else {
+			d.PaceData = append(d.PaceData, 0)
+		}
+
+		if entry.hrCount > 0 {
+			d.HRData = append(d.HRData, entry.hrSum/float64(entry.hrCount))
+		} else if len(d.HRData) > 0 {
+			d.HRData = append(d.HRData, d.HRData[len(d.HRData)-1])
+		} else {
+			d.HRData = append(d.HRData, 0)
+		}
+
+		d.TimeLabels = append(d.TimeLabels, formatMinutes(m))
+	}
+}
+
+func (d *ActivityDetail) calculateSplit(streams []store.StreamPoint, startIdx, endIdx int, mile int) MileSplit {
+	split := MileSplit{Mile: mile}
+
+	if endIdx <= startIdx || endIdx >= len(streams) {
+		return split
+	}
+
+	startTime := streams[startIdx].TimeOffset
+	endTime := streams[endIdx].TimeOffset
+	split.Duration = endTime - startTime
+	split.Pace = formatPace(split.Duration)
+
+	// Calculate averages for this split
+	var hrSum, cadSum float64
+	var hrCount, cadCount int
+
+	for i := startIdx; i <= endIdx && i < len(streams); i++ {
+		p := streams[i]
+		if p.Heartrate != nil && *p.Heartrate > 50 {
+			hrSum += float64(*p.Heartrate)
+			hrCount++
+		}
+		if p.Cadence != nil && *p.Cadence > 0 {
+			cadSum += float64(*p.Cadence) * 2
+			cadCount++
+		}
+	}
+
+	if hrCount > 0 {
+		split.AvgHR = hrSum / float64(hrCount)
+	}
+	if cadCount > 0 {
+		split.AvgCad = cadSum / float64(cadCount)
+	}
+
+	return split
+}
+
+func (d *ActivityDetail) calculateHRZones(streams []store.StreamPoint, maxHR int) []HRZoneTime {
+	zones := []HRZoneTime{
+		{Zone: 1, Name: "Recovery (<60%)"},
+		{Zone: 2, Name: "Aerobic (60-70%)"},
+		{Zone: 3, Name: "Tempo (70-80%)"},
+		{Zone: 4, Name: "Threshold (80-90%)"},
+		{Zone: 5, Name: "VO2max (>90%)"},
+	}
+
+	thresholds := []float64{0.6, 0.7, 0.8, 0.9, 1.0}
+	totalSeconds := 0
+
+	for _, p := range streams {
+		if p.Heartrate == nil || *p.Heartrate < 50 {
+			continue
+		}
+
+		pct := float64(*p.Heartrate) / float64(maxHR)
+		totalSeconds++
+
+		for i, thresh := range thresholds {
+			if pct <= thresh {
+				zones[i].Seconds++
+				break
+			}
+		}
+	}
+
+	// Calculate percentages
+	if totalSeconds > 0 {
+		for i := range zones {
+			zones[i].Percent = float64(zones[i].Seconds) / float64(totalSeconds) * 100
+		}
+	}
+
+	return zones
+}
+
+func formatPace(seconds int) string {
+	mins := seconds / 60
+	secs := seconds % 60
+	return fmt.Sprintf("%d:%02d", mins, secs)
+}
+
+func formatMinutes(m int) string {
+	return fmt.Sprintf("%d:00", m)
 }
 
 // PeriodStats holds aggregated stats for a time period

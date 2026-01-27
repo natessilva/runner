@@ -4,13 +4,13 @@ Future enhancements to take the app to the next level.
 
 ## High Impact, Moderate Effort
 
-### [ ] Activity Detail View
+### [x] Activity Detail View
 Press enter on an activity to see detailed analysis:
 - Pace & HR graph over time (visualize where you fatigued)
 - Mile/km splits with HR for each split
 - HR zone distribution breakdown
-- Decoupling visualization (first half vs second half)
-- Grade-adjusted pace analysis for hilly runs
+- ~~Decoupling visualization (first half vs second half)~~
+- ~~Grade-adjusted pace analysis for hilly runs~~
 
 ### [ ] HR Zone Analysis
 Weekly and monthly breakdown of time spent in each HR zone:

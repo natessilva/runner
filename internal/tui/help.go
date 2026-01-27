@@ -52,6 +52,7 @@ func (m HelpModel) View() string {
 
 	// Activities keys
 	actSection := m.renderSection("Activities List", []keyHelp{
+		{"enter", "View activity details"},
 		{"j / down", "Move cursor down"},
 		{"k / up", "Move cursor up"},
 		{"pgdn", "Next page"},
@@ -60,10 +61,23 @@ func (m HelpModel) View() string {
 	})
 	sections = append(sections, actSection)
 
+	// Activity detail keys
+	detailSection := m.renderSection("Activity Detail", []keyHelp{
+		{"j / down", "Scroll down"},
+		{"k / up", "Scroll up"},
+		{"esc", "Back to activities list"},
+		{"r", "Refresh"},
+	})
+	sections = append(sections, detailSection)
+
 	// Stats keys
 	statsSection := m.renderSection("Period Stats", []keyHelp{
 		{"w", "Weekly view"},
 		{"m", "Monthly view"},
+		{"j / down", "Move cursor down"},
+		{"k / up", "Move cursor up"},
+		{"pgdn", "Next page"},
+		{"pgup", "Previous page"},
 		{"r", "Refresh"},
 	})
 	sections = append(sections, statsSection)

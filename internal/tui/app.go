@@ -15,6 +15,7 @@ type Screen int
 const (
 	ScreenDashboard Screen = iota
 	ScreenActivities
+	ScreenActivityDetail
 	ScreenStats
 	ScreenSync
 	ScreenHelp
@@ -26,11 +27,12 @@ type App struct {
 	prevScreen Screen
 
 	// Screen models
-	dashboard  DashboardModel
-	activities ActivitiesModel
-	stats      StatsModel
-	syncScreen SyncModel
-	help       HelpModel
+	dashboard      DashboardModel
+	activities     ActivitiesModel
+	activityDetail ActivityDetailModel
+	stats          StatsModel
+	syncScreen     SyncModel
+	help           HelpModel
 
 	// Services
 	db          *store.DB
@@ -101,6 +103,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.screen = a.prevScreen
 					return a, nil
 				}
+				if a.screen == ScreenActivityDetail {
+					a.screen = ScreenActivities
+					return a, a.activities.Init()
+				}
 			}
 		}
 
@@ -113,6 +119,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.screen = ScreenDashboard
 		a.dashboard = NewDashboardModel(a.queryService, a.width, a.height)
 		return a, a.dashboard.Init()
+
+	case OpenActivityDetailMsg:
+		a.screen = ScreenActivityDetail
+		a.activityDetail = NewActivityDetailModel(a.queryService, msg.ActivityID, a.width, a.height)
+		return a, a.activityDetail.Init()
 	}
 
 	// Delegate to current screen
@@ -126,6 +137,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var m tea.Model
 		m, cmd = a.activities.Update(msg)
 		a.activities = m.(ActivitiesModel)
+	case ScreenActivityDetail:
+		var m tea.Model
+		m, cmd = a.activityDetail.Update(msg)
+		a.activityDetail = m.(ActivityDetailModel)
 	case ScreenStats:
 		var m tea.Model
 		m, cmd = a.stats.Update(msg)
@@ -154,6 +169,8 @@ func (a *App) View() string {
 		content = a.dashboard.View()
 	case ScreenActivities:
 		content = a.activities.View()
+	case ScreenActivityDetail:
+		content = a.activityDetail.View()
 	case ScreenStats:
 		content = a.stats.View()
 	case ScreenSync:
@@ -212,3 +229,8 @@ func (a *App) renderFooter() string {
 
 // SyncCompleteMsg is sent when sync finishes
 type SyncCompleteMsg struct{}
+
+// OpenActivityDetailMsg is sent when an activity is selected
+type OpenActivityDetailMsg struct {
+	ActivityID int64
+}

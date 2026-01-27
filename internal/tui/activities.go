@@ -106,6 +106,13 @@ func (m ActivitiesModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "r":
 			m.loading = true
 			return m, m.loadPage
+		case "enter":
+			if len(m.activities) > 0 && m.cursor < len(m.activities) {
+				activityID := m.activities[m.cursor].Activity.ID
+				return m, func() tea.Msg {
+					return OpenActivityDetailMsg{ActivityID: activityID}
+				}
+			}
 		}
 	}
 	return m, nil
@@ -192,7 +199,7 @@ func (m ActivitiesModel) View() string {
 	}
 
 	// Help
-	help := statusStyle.Render("\n  j/k or arrows: navigate  pgup/pgdn: page  r: refresh  1: dashboard")
+	help := statusStyle.Render("\n  enter: view details  j/k: navigate  pgup/pgdn: page  r: refresh")
 	sections = append(sections, help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
