@@ -59,8 +59,15 @@ func (m StatsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statsLoadedMsg:
 		m.loading = false
 		m.err = msg.err
-		m.stats = msg.stats
-		m.total = len(msg.stats)
+		// Filter to only periods with data
+		var periodsWithData []service.PeriodStats
+		for _, s := range msg.stats {
+			if s.RunCount > 0 {
+				periodsWithData = append(periodsWithData, s)
+			}
+		}
+		m.stats = periodsWithData
+		m.total = len(periodsWithData)
 		m.cursor = 0
 		m.offset = 0
 
@@ -144,15 +151,6 @@ func (m StatsModel) View() string {
 		periodLabel = "Monthly"
 	}
 
-	// Filter to periods with data
-	var periodsWithData []service.PeriodStats
-	for _, s := range m.stats {
-		if s.RunCount > 0 {
-			periodsWithData = append(periodsWithData, s)
-		}
-	}
-	m.total = len(periodsWithData)
-
 	if m.total == 0 {
 		title := cardTitleStyle.Render(fmt.Sprintf("Period Stats (%s)", periodLabel))
 		sections = append(sections, title)
@@ -175,9 +173,9 @@ func (m StatsModel) View() string {
 	sections = append(sections, header)
 
 	// Reverse the data so most recent is first
-	reversed := make([]service.PeriodStats, len(periodsWithData))
-	for i, s := range periodsWithData {
-		reversed[len(periodsWithData)-1-i] = s
+	reversed := make([]service.PeriodStats, len(m.stats))
+	for i, s := range m.stats {
+		reversed[len(m.stats)-1-i] = s
 	}
 
 	// Rows for current page

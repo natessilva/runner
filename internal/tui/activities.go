@@ -141,8 +141,8 @@ func (m ActivitiesModel) View() string {
 	sections = append(sections, title)
 
 	// Header
-	header := tableHeaderStyle.Render(fmt.Sprintf("   %-10s  %-25s  %8s  %6s  %7s  %7s  %6s",
-		"Date", "Name", "Distance", "Pace", "EF", "Decouple", "TRIMP"))
+	header := tableHeaderStyle.Render(fmt.Sprintf("   %-10s  %-20s  %7s  %5s  %3s  %3s  %5s  %6s  %5s",
+		"Date", "Name", "Dist", "Pace", "HR", "SPM", "EF", "Decoup", "TRIMP"))
 	sections = append(sections, header)
 
 	// Rows
@@ -174,18 +174,30 @@ func (m ActivitiesModel) View() string {
 			trimp = fmt.Sprintf("%.0f", *met.TRIMP)
 		}
 
+		hr := "-"
+		if a.AverageHeartrate != nil && *a.AverageHeartrate > 0 {
+			hr = fmt.Sprintf("%.0f", *a.AverageHeartrate)
+		}
+
+		spm := "-"
+		if a.AverageCadence != nil && *a.AverageCadence > 0 {
+			spm = fmt.Sprintf("%.0f", *a.AverageCadence*2) // Strava stores as half (per foot)
+		}
+
 		// Cursor indicator
 		cursor := "  "
 		if i == m.cursor {
 			cursor = "> "
 		}
 
-		row := fmt.Sprintf("%s%-10s  %-25s  %7.1fmi  %6s  %6s  %7s  %6s",
+		row := fmt.Sprintf("%s%-10s  %-20s  %6.1fmi  %5s  %3s  %3s  %5s  %6s  %5s",
 			cursor,
 			a.StartDateLocal.Format("Jan 02"),
-			truncateName(a.Name, 25),
+			truncateName(a.Name, 20),
 			a.Distance/1609.34,
 			pace,
+			hr,
+			spm,
 			ef,
 			dec,
 			trimp,
