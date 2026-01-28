@@ -126,3 +126,49 @@ func (db *DB) DeleteStreams(activityID int64) error {
 	_, err := db.Exec("DELETE FROM streams WHERE activity_id = ?", activityID)
 	return err
 }
+
+// GetStreamsForActivities retrieves stream points for multiple activities in a single query.
+// Returns a map from activity ID to stream points, sorted by time offset.
+func (db *DB) GetStreamsForActivities(activityIDs []int64) (map[int64][]StreamPoint, error) {
+	if len(activityIDs) == 0 {
+		return make(map[int64][]StreamPoint), nil
+	}
+
+	// Build query with placeholders
+	query := `
+		SELECT activity_id, time_offset, latlng_lat, latlng_lng, altitude,
+			velocity_smooth, heartrate, cadence, grade_smooth, distance
+		FROM streams
+		WHERE activity_id IN (`
+
+	args := make([]interface{}, len(activityIDs))
+	for i, id := range activityIDs {
+		if i > 0 {
+			query += ", "
+		}
+		query += "?"
+		args[i] = id
+	}
+	query += `) ORDER BY activity_id, time_offset`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]StreamPoint)
+	for rows.Next() {
+		var p StreamPoint
+		err := rows.Scan(
+			&p.ActivityID, &p.TimeOffset, &p.Lat, &p.Lng, &p.Altitude,
+			&p.VelocitySmooth, &p.Heartrate, &p.Cadence, &p.GradeSmooth, &p.Distance,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result[p.ActivityID] = append(result[p.ActivityID], p)
+	}
+
+	return result, rows.Err()
+}
