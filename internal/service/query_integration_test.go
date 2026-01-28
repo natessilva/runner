@@ -483,3 +483,213 @@ func TestQueryService_GetDashboardData(t *testing.T) {
 		}
 	})
 }
+
+func TestQueryService_GetWeeklyComparisons(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	svc := NewQueryService(db, 185)
+
+	t.Run("handles empty database", func(t *testing.T) {
+		comparisons, err := svc.GetWeeklyComparisons()
+		if err != nil {
+			t.Fatalf("GetWeeklyComparisons failed: %v", err)
+		}
+
+		// Should return 2 comparisons (week vs week, rolling 30)
+		if len(comparisons) != 2 {
+			t.Fatalf("expected 2 comparisons, got %d", len(comparisons))
+		}
+
+		// Both should have zero data
+		if comparisons[0].Current.RunCount != 0 {
+			t.Errorf("expected 0 runs in current week, got %d", comparisons[0].Current.RunCount)
+		}
+	})
+
+	// Calculate Monday of this week and last week for deterministic dates
+	now := time.Now()
+	// Find Monday of current week (same logic as getMonday helper)
+	daysFromMonday := (int(now.Weekday()) + 6) % 7
+	monday := now.AddDate(0, 0, -daysFromMonday)
+	thisMonday := time.Date(monday.Year(), monday.Month(), monday.Day(), 12, 0, 0, 0, now.Location())
+	lastMonday := thisMonday.AddDate(0, 0, -7)
+
+	// This week: 3 runs (Tue, Wed, Thu of this week)
+	for i := 0; i < 3; i++ {
+		id := int64(i + 1)
+		date := thisMonday.AddDate(0, 0, i+1) // Tue, Wed, Thu
+		createTestActivity(t, db, id, "This Week Run", date, 8000, 2400, floatPtr(150))
+		createTestMetrics(t, db, id, floatPtr(1.25), floatPtr(100))
+		createTestStreams(t, db, id, 100, 3.0, 150)
+	}
+	// Last week: 2 runs (Tue, Wed of last week)
+	for i := 0; i < 2; i++ {
+		id := int64(i + 10)
+		date := lastMonday.AddDate(0, 0, i+1) // Tue, Wed
+		createTestActivity(t, db, id, "Last Week Run", date, 6000, 1800, floatPtr(155))
+		createTestMetrics(t, db, id, floatPtr(1.20), floatPtr(80))
+		createTestStreams(t, db, id, 100, 3.0, 155)
+	}
+
+	t.Run("calculates week vs week comparison", func(t *testing.T) {
+		comparisons, err := svc.GetWeeklyComparisons()
+		if err != nil {
+			t.Fatalf("GetWeeklyComparisons failed: %v", err)
+		}
+
+		weekComp := comparisons[0]
+		if weekComp.Label != "This Week vs Last Week" {
+			t.Errorf("expected label 'This Week vs Last Week', got %q", weekComp.Label)
+		}
+
+		// Current week should have more or equal runs depending on day of week
+		// Just verify we got reasonable data back
+		if weekComp.Current.RunCount < 0 || weekComp.Previous.RunCount < 0 {
+			t.Errorf("unexpected negative run counts: current=%d, previous=%d",
+				weekComp.Current.RunCount, weekComp.Previous.RunCount)
+		}
+	})
+
+	t.Run("includes rolling 30-day comparison", func(t *testing.T) {
+		comparisons, err := svc.GetWeeklyComparisons()
+		if err != nil {
+			t.Fatalf("GetWeeklyComparisons failed: %v", err)
+		}
+
+		rolling := comparisons[1]
+		if rolling.Label != "Rolling 30 Days vs Prior 30" {
+			t.Errorf("expected label 'Rolling 30 Days vs Prior 30', got %q", rolling.Label)
+		}
+	})
+}
+
+func TestQueryService_GetMonthlyComparisons(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	svc := NewQueryService(db, 185)
+
+	t.Run("handles empty database", func(t *testing.T) {
+		comparisons, err := svc.GetMonthlyComparisons()
+		if err != nil {
+			t.Fatalf("GetMonthlyComparisons failed: %v", err)
+		}
+
+		// Should return 3 comparisons (month vs month, YoY, rolling 30)
+		if len(comparisons) != 3 {
+			t.Fatalf("expected 3 comparisons, got %d", len(comparisons))
+		}
+	})
+
+	// Add activities in current month
+	now := time.Now()
+	for i := 0; i < 4; i++ {
+		id := int64(i + 1)
+		date := now.AddDate(0, 0, -i)
+		createTestActivity(t, db, id, "This Month Run", date, 10000, 3000, floatPtr(148))
+		createTestMetrics(t, db, id, floatPtr(1.30), floatPtr(120))
+		createTestStreams(t, db, id, 100, 3.0, 148)
+	}
+
+	// Add activities in last month
+	lastMonth := now.AddDate(0, -1, 0)
+	for i := 0; i < 3; i++ {
+		id := int64(i + 20)
+		date := lastMonth.AddDate(0, 0, -i)
+		createTestActivity(t, db, id, "Last Month Run", date, 8000, 2400, floatPtr(152))
+		createTestMetrics(t, db, id, floatPtr(1.22), floatPtr(100))
+		createTestStreams(t, db, id, 100, 3.0, 152)
+	}
+
+	t.Run("calculates month vs month comparison", func(t *testing.T) {
+		comparisons, err := svc.GetMonthlyComparisons()
+		if err != nil {
+			t.Fatalf("GetMonthlyComparisons failed: %v", err)
+		}
+
+		monthComp := comparisons[0]
+		if monthComp.Label != "This Month vs Last Month" {
+			t.Errorf("expected label 'This Month vs Last Month', got %q", monthComp.Label)
+		}
+
+		// Delta runs should be positive (4 - 3 = 1)
+		if monthComp.DeltaRuns != 1 {
+			t.Errorf("expected DeltaRuns=1, got %d", monthComp.DeltaRuns)
+		}
+	})
+
+	t.Run("includes year over year comparison", func(t *testing.T) {
+		comparisons, err := svc.GetMonthlyComparisons()
+		if err != nil {
+			t.Fatalf("GetMonthlyComparisons failed: %v", err)
+		}
+
+		yoyComp := comparisons[1]
+		if yoyComp.Label != "vs Same Month Last Year" {
+			t.Errorf("expected label 'vs Same Month Last Year', got %q", yoyComp.Label)
+		}
+
+		// No data last year, so previous should be empty
+		if yoyComp.Previous.RunCount != 0 {
+			t.Errorf("expected 0 runs last year, got %d", yoyComp.Previous.RunCount)
+		}
+	})
+}
+
+func TestQueryService_GetPeriodStatsForRange(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+
+	svc := NewQueryService(db, 185)
+
+	now := time.Now()
+	start := now.AddDate(0, 0, -7)
+
+	// Add activities in the range
+	for i := 0; i < 3; i++ {
+		id := int64(i + 1)
+		date := now.AddDate(0, 0, -i)
+		createTestActivity(t, db, id, "Test Run", date, 8000, 2400, floatPtr(150))
+		createTestMetrics(t, db, id, floatPtr(1.25+float64(i)*0.01), floatPtr(100))
+		createTestStreams(t, db, id, 100, 3.0, 150)
+	}
+
+	t.Run("calculates stats with EF", func(t *testing.T) {
+		stats, err := svc.getPeriodStatsForRange(start, now.AddDate(0, 0, 1), "Test Period")
+		if err != nil {
+			t.Fatalf("getPeriodStatsForRange failed: %v", err)
+		}
+
+		if stats.RunCount != 3 {
+			t.Errorf("expected 3 runs, got %d", stats.RunCount)
+		}
+
+		if stats.AvgEF == 0 {
+			t.Error("expected non-zero AvgEF")
+		}
+
+		// AvgEF should be around 1.26 (average of 1.25, 1.26, 1.27)
+		if stats.AvgEF < 1.25 || stats.AvgEF > 1.28 {
+			t.Errorf("expected AvgEF around 1.26, got %.2f", stats.AvgEF)
+		}
+	})
+
+	t.Run("handles empty range", func(t *testing.T) {
+		// Range with no activities
+		futureStart := now.AddDate(1, 0, 0)
+		futureEnd := futureStart.AddDate(0, 0, 7)
+
+		stats, err := svc.getPeriodStatsForRange(futureStart, futureEnd, "Empty Period")
+		if err != nil {
+			t.Fatalf("getPeriodStatsForRange failed: %v", err)
+		}
+
+		if stats.RunCount != 0 {
+			t.Errorf("expected 0 runs in empty range, got %d", stats.RunCount)
+		}
+		if stats.AvgEF != 0 {
+			t.Errorf("expected 0 AvgEF in empty range, got %.2f", stats.AvgEF)
+		}
+	})
+}

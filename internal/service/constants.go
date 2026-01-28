@@ -21,6 +21,9 @@ const (
 	HistoricalActivitiesLimit = 200
 	PeriodStatsActivityLimit  = 500
 
+	// Comparison windows
+	Rolling30Days = 30
+
 	// Partial mile threshold (0.1 miles in meters)
 	PartialMileThreshold = 160
 

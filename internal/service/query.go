@@ -632,6 +632,19 @@ type PeriodStats struct {
 	TotalMiles  float64
 	AvgHR       float64
 	AvgSPM      float64
+	AvgEF       float64
+}
+
+// ComparisonStats holds two periods and their deltas
+type ComparisonStats struct {
+	Label      string
+	Current    PeriodStats
+	Previous   PeriodStats
+	DeltaRuns  int
+	DeltaMiles float64
+	DeltaHR    float64
+	DeltaSPM   float64
+	DeltaEF    float64
 }
 
 // GetPeriodStats returns aggregated stats by week or month
@@ -734,4 +747,185 @@ func (q *QueryService) findPeriodIndex(date time.Time, stats []PeriodStats, peri
 		}
 	}
 	return -1
+}
+
+// GetWeeklyComparisons returns week-over-week and rolling 30-day comparisons
+func (q *QueryService) GetWeeklyComparisons() ([]ComparisonStats, error) {
+	now := time.Now()
+	currentMonday := getMonday(now)
+	lastMonday := currentMonday.AddDate(0, 0, -7)
+
+	// This week vs last week
+	thisWeek, err := q.getPeriodStatsForRange(currentMonday, now, "This Week")
+	if err != nil {
+		return nil, err
+	}
+	lastWeek, err := q.getPeriodStatsForRange(lastMonday, currentMonday, "Last Week")
+	if err != nil {
+		return nil, err
+	}
+
+	weekComparison := buildComparison("This Week vs Last Week", thisWeek, lastWeek)
+
+	// Rolling 30-day comparison
+	rolling30, err := q.getRolling30DayComparison()
+	if err != nil {
+		return nil, err
+	}
+
+	return []ComparisonStats{weekComparison, rolling30}, nil
+}
+
+// GetMonthlyComparisons returns month-over-month, year-over-year, and rolling 30-day comparisons
+func (q *QueryService) GetMonthlyComparisons() ([]ComparisonStats, error) {
+	now := time.Now()
+
+	// This month vs last month
+	thisMonthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	lastMonthStart := thisMonthStart.AddDate(0, -1, 0)
+
+	thisMonth, err := q.getPeriodStatsForRange(thisMonthStart, now, now.Format("Jan 2006"))
+	if err != nil {
+		return nil, err
+	}
+	lastMonth, err := q.getPeriodStatsForRange(lastMonthStart, thisMonthStart, lastMonthStart.Format("Jan 2006"))
+	if err != nil {
+		return nil, err
+	}
+
+	monthComparison := buildComparison("This Month vs Last Month", thisMonth, lastMonth)
+
+	// Year over year (this month vs same month last year)
+	lastYearStart := thisMonthStart.AddDate(-1, 0, 0)
+	lastYearEnd := lastYearStart.AddDate(0, 1, 0)
+	lastYearMonth, err := q.getPeriodStatsForRange(lastYearStart, lastYearEnd, lastYearStart.Format("Jan 2006"))
+	if err != nil {
+		return nil, err
+	}
+
+	yoyComparison := buildComparison("vs Same Month Last Year", thisMonth, lastYearMonth)
+
+	// Rolling 30-day comparison
+	rolling30, err := q.getRolling30DayComparison()
+	if err != nil {
+		return nil, err
+	}
+
+	return []ComparisonStats{monthComparison, yoyComparison, rolling30}, nil
+}
+
+// getRolling30DayComparison returns last 30 days vs prior 30 days
+func (q *QueryService) getRolling30DayComparison() (ComparisonStats, error) {
+	now := time.Now()
+	thirtyDaysAgo := now.AddDate(0, 0, -Rolling30Days)
+	sixtyDaysAgo := now.AddDate(0, 0, -Rolling30Days*2)
+
+	current, err := q.getPeriodStatsForRange(thirtyDaysAgo, now, "Last 30 Days")
+	if err != nil {
+		return ComparisonStats{}, err
+	}
+	previous, err := q.getPeriodStatsForRange(sixtyDaysAgo, thirtyDaysAgo, "Prior 30 Days")
+	if err != nil {
+		return ComparisonStats{}, err
+	}
+
+	return buildComparison("Rolling 30 Days vs Prior 30", current, previous), nil
+}
+
+// getPeriodStatsForRange calculates stats for activities within a date range
+func (q *QueryService) getPeriodStatsForRange(start, end time.Time, label string) (PeriodStats, error) {
+	stats := PeriodStats{
+		PeriodStart: start,
+		PeriodLabel: label,
+	}
+
+	activities, metrics, err := q.store.GetActivitiesWithMetrics(PeriodStatsActivityLimit, 0)
+	if err != nil {
+		return stats, err
+	}
+
+	// Filter activities in range and collect IDs
+	var relevantActivities []store.Activity
+	var relevantMetrics []store.ActivityMetrics
+	var activityIDs []int64
+
+	for i, a := range activities {
+		if !a.StartDate.Before(start) && a.StartDate.Before(end) {
+			relevantActivities = append(relevantActivities, a)
+			relevantMetrics = append(relevantMetrics, metrics[i])
+			activityIDs = append(activityIDs, a.ID)
+		}
+	}
+
+	if len(relevantActivities) == 0 {
+		return stats, nil
+	}
+
+	// Batch fetch streams
+	streamsMap, err := q.store.GetStreamsForActivities(activityIDs)
+	if err != nil {
+		streamsMap = make(map[int64][]store.StreamPoint)
+	}
+
+	// Aggregate stats
+	var efSum float64
+	var efCount int
+
+	for i, a := range relevantActivities {
+		stats.RunCount++
+		stats.TotalMiles += metersToMiles(a.Distance)
+
+		// EF from metrics
+		if relevantMetrics[i].EfficiencyFactor != nil {
+			efSum += *relevantMetrics[i].EfficiencyFactor
+			efCount++
+		}
+
+		// HR and cadence from streams
+		streams := streamsMap[a.ID]
+		if len(streams) == 0 {
+			continue
+		}
+
+		streamStats := AggregateStreamStats(streams)
+
+		if streamStats.HRCount > 0 {
+			activityAvgHR := streamStats.AvgHR()
+			if stats.AvgHR == 0 {
+				stats.AvgHR = activityAvgHR
+			} else {
+				n := float64(stats.RunCount)
+				stats.AvgHR = stats.AvgHR*(n-1)/n + activityAvgHR/n
+			}
+		}
+		if streamStats.CadenceCount > 0 {
+			activityAvgSPM := streamStats.AvgCadence()
+			if stats.AvgSPM == 0 {
+				stats.AvgSPM = activityAvgSPM
+			} else {
+				n := float64(stats.RunCount)
+				stats.AvgSPM = stats.AvgSPM*(n-1)/n + activityAvgSPM/n
+			}
+		}
+	}
+
+	if efCount > 0 {
+		stats.AvgEF = efSum / float64(efCount)
+	}
+
+	return stats, nil
+}
+
+// buildComparison creates a ComparisonStats from two periods
+func buildComparison(label string, current, previous PeriodStats) ComparisonStats {
+	return ComparisonStats{
+		Label:      label,
+		Current:    current,
+		Previous:   previous,
+		DeltaRuns:  current.RunCount - previous.RunCount,
+		DeltaMiles: current.TotalMiles - previous.TotalMiles,
+		DeltaHR:    current.AvgHR - previous.AvgHR,
+		DeltaSPM:   current.AvgSPM - previous.AvgSPM,
+		DeltaEF:    current.AvgEF - previous.AvgEF,
+	}
 }

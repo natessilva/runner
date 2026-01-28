@@ -149,6 +149,7 @@ func TestPeriodStatsStructure(t *testing.T) {
 		TotalMiles:  25.5,
 		AvgHR:       145.0,
 		AvgSPM:      175.0,
+		AvgEF:       1.25,
 	}
 
 	if stats.PeriodLabel != "Jan 06" {
@@ -165,6 +166,64 @@ func TestPeriodStatsStructure(t *testing.T) {
 	}
 	if stats.AvgSPM != 175.0 {
 		t.Error("AvgSPM not set correctly")
+	}
+	if stats.AvgEF != 1.25 {
+		t.Error("AvgEF not set correctly")
+	}
+}
+
+func TestComparisonStatsStructure(t *testing.T) {
+	// Test that ComparisonStats struct can be properly used
+	current := PeriodStats{
+		PeriodLabel: "This Week",
+		RunCount:    5,
+		TotalMiles:  25.5,
+		AvgHR:       145.0,
+		AvgSPM:      175.0,
+		AvgEF:       1.25,
+	}
+	previous := PeriodStats{
+		PeriodLabel: "Last Week",
+		RunCount:    4,
+		TotalMiles:  20.0,
+		AvgHR:       148.0,
+		AvgSPM:      172.0,
+		AvgEF:       1.20,
+	}
+	comp := ComparisonStats{
+		Label:      "This Week vs Last Week",
+		Current:    current,
+		Previous:   previous,
+		DeltaRuns:  1,
+		DeltaMiles: 5.5,
+		DeltaHR:    -3.0,
+		DeltaSPM:   3.0,
+		DeltaEF:    0.05,
+	}
+
+	if comp.Label != "This Week vs Last Week" {
+		t.Error("Label not set correctly")
+	}
+	if comp.Current.RunCount != 5 {
+		t.Error("Current.RunCount not set correctly")
+	}
+	if comp.Previous.RunCount != 4 {
+		t.Error("Previous.RunCount not set correctly")
+	}
+	if comp.DeltaRuns != 1 {
+		t.Error("DeltaRuns not set correctly")
+	}
+	if comp.DeltaMiles != 5.5 {
+		t.Error("DeltaMiles not set correctly")
+	}
+	if comp.DeltaHR != -3.0 {
+		t.Error("DeltaHR not set correctly")
+	}
+	if comp.DeltaSPM != 3.0 {
+		t.Error("DeltaSPM not set correctly")
+	}
+	if comp.DeltaEF != 0.05 {
+		t.Error("DeltaEF not set correctly")
 	}
 }
 

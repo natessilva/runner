@@ -17,6 +17,7 @@ const (
 	ScreenActivities
 	ScreenActivityDetail
 	ScreenStats
+	ScreenComparisons
 	ScreenSync
 	ScreenHelp
 )
@@ -31,6 +32,7 @@ type App struct {
 	activities     ActivitiesModel
 	activityDetail ActivityDetailModel
 	stats          StatsModel
+	comparisons    ComparisonsModel
 	syncScreen     SyncModel
 	help           HelpModel
 
@@ -59,6 +61,7 @@ func NewApp(db *store.DB, stravaClient *strava.Client, syncService *service.Sync
 		dashboard:    NewDashboardModel(queryService, 0, 0),
 		activities:   NewActivitiesModel(queryService),
 		stats:        NewStatsModel(queryService),
+		comparisons:  NewComparisonsModel(queryService),
 		syncScreen:   NewSyncModel(syncService),
 		help:         NewHelpModel(),
 	}
@@ -88,12 +91,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "3":
 				a.screen = ScreenStats
 				return a, a.stats.Init()
-			case "4", "s":
+			case "4", "c":
+				a.screen = ScreenComparisons
+				return a, a.comparisons.Init()
+			case "5":
 				if a.screen != ScreenSync {
 					a.screen = ScreenSync
 					return a, a.syncScreen.Init()
 				}
-				// Let 's' fall through to sync screen when already there
 			case "?":
 				a.prevScreen = a.screen
 				a.screen = ScreenHelp
@@ -145,6 +150,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var m tea.Model
 		m, cmd = a.stats.Update(msg)
 		a.stats = m.(StatsModel)
+	case ScreenComparisons:
+		var m tea.Model
+		m, cmd = a.comparisons.Update(msg)
+		a.comparisons = m.(ComparisonsModel)
 	case ScreenSync:
 		var m tea.Model
 		m, cmd = a.syncScreen.Update(msg)
@@ -173,6 +182,8 @@ func (a *App) View() string {
 		content = a.activityDetail.View()
 	case ScreenStats:
 		content = a.stats.View()
+	case ScreenComparisons:
+		content = a.comparisons.View()
 	case ScreenSync:
 		content = a.syncScreen.View()
 	case ScreenHelp:
@@ -197,7 +208,8 @@ func (a *App) renderNav() string {
 		{"1", "Dashboard", ScreenDashboard},
 		{"2", "Activities", ScreenActivities},
 		{"3", "Stats", ScreenStats},
-		{"4", "Sync", ScreenSync},
+		{"4", "Compare", ScreenComparisons},
+		{"5", "Sync", ScreenSync},
 		{"?", "Help", ScreenHelp},
 	}
 
