@@ -169,7 +169,7 @@ main.go
 ### SQLite Schema
 
 ```sql
--- Database: ~/.strava-fitness/data.db
+-- Database: ~/.runner/data.db
 
 ----------------------------------------------------------------------
 -- Authentication
@@ -1528,7 +1528,7 @@ func CalculateRollingStats(values []float64, dates []time.Time) RollingStats {
 
 package analysis
 
-import "strava-fitness/internal/store"
+import "runner/internal/store"
 
 // ComputeActivityMetrics calculates all metrics for a single activity
 func ComputeActivityMetrics(activity store.Activity, streams []store.StreamPoint) store.ActivityMetrics {
@@ -1752,8 +1752,8 @@ func ComputeActivityMetrics(activity store.Activity, streams []store.StreamPoint
 package tui
 
 import (
-    "strava-fitness/internal/service"
-    "strava-fitness/internal/store"
+    "runner/internal/service"
+    "runner/internal/store"
 
     tea "github.com/charmbracelet/bubbletea"
 )
@@ -2040,7 +2040,7 @@ func renderMetric(label string, value string, trend string) string {
 ## Project Structure
 
 ```
-strava-fitness/
+runner/
 ├── go.mod
 ├── go.sum
 ├── main.go                          # Entry point
@@ -2113,12 +2113,12 @@ strava-fitness/
 
 1. Initialize Go module
    ```bash
-   go mod init strava-fitness
+   go mod init runner
    ```
 
 2. Create `internal/store/db.go`
    - Database connection
-   - Path resolution (`~/.strava-fitness/data.db`)
+   - Path resolution (`~/.runner/data.db`)
    - Connection pooling
 
 3. Create `internal/store/migrations.go`
@@ -2152,7 +2152,7 @@ strava-fitness/
    - Persistence callback
 
 4. Create config file handling
-   - Read client ID/secret from `~/.strava-fitness/config.json`
+   - Read client ID/secret from `~/.runner/config.json`
 
 **Verification**: Can authenticate with Strava, tokens persist across restarts
 
@@ -2315,7 +2315,7 @@ strava-fitness/
 
 ### Config File Location
 
-`~/.strava-fitness/config.json`
+`~/.runner/config.json`
 
 ```json
 {
@@ -2338,7 +2338,7 @@ strava-fitness/
 ### Data Directory Structure
 
 ```
-~/.strava-fitness/
+~/.runner/
 ├── config.json          # User configuration
 ├── data.db              # SQLite database
 └── logs/                # Optional debug logs

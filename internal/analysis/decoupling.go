@@ -1,6 +1,6 @@
 package analysis
 
-import "strava-fitness/internal/store"
+import "runner/internal/store"
 
 // AerobicDecoupling calculates the pace:HR drift between first and second half
 // Returns percentage - positive means second half was less efficient

@@ -15,7 +15,7 @@ type DB struct {
 }
 
 // Open opens the SQLite database, creating it if necessary.
-// The database is stored at ~/.strava-fitness/data.db
+// The database is stored at ~/.runner/data.db
 func Open() (*DB, error) {
 	dbPath, err := getDBPath()
 	if err != nil {
@@ -54,5 +54,5 @@ func getDBPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("getting home directory: %w", err)
 	}
-	return filepath.Join(home, ".strava-fitness", "data.db"), nil
+	return filepath.Join(home, ".runner", "data.db"), nil
 }

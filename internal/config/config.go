@@ -52,7 +52,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Load reads the configuration from ~/.strava-fitness/config.json
+// Load reads the configuration from ~/.runner/config.json
 func Load() (*Config, error) {
 	path, err := getConfigPath()
 	if err != nil {
@@ -93,7 +93,7 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes the configuration to ~/.strava-fitness/config.json
+// Save writes the configuration to ~/.runner/config.json
 func Save(cfg *Config) error {
 	path, err := getConfigPath()
 	if err != nil {
@@ -166,7 +166,7 @@ func getConfigPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("getting home directory: %w", err)
 	}
-	return filepath.Join(home, ".strava-fitness", "config.json"), nil
+	return filepath.Join(home, ".runner", "config.json"), nil
 }
 
 // GetConfigDir returns the path to the config directory
@@ -175,5 +175,5 @@ func GetConfigDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("getting home directory: %w", err)
 	}
-	return filepath.Join(home, ".strava-fitness"), nil
+	return filepath.Join(home, ".runner"), nil
 }

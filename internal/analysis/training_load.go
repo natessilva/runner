@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"strava-fitness/internal/store"
+	"runner/internal/store"
 )
 
 // HRZones represents athlete's heart rate zones

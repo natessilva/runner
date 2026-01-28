@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"strava-fitness/internal/service"
+	"runner/internal/service"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"

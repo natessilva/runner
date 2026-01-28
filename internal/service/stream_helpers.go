@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	"strava-fitness/internal/store"
+	"runner/internal/store"
 )
 
 // StreamStats holds aggregated metrics from stream points

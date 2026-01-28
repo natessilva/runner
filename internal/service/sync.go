@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"strava-fitness/internal/analysis"
-	"strava-fitness/internal/store"
-	"strava-fitness/internal/strava"
+	"runner/internal/analysis"
+	"runner/internal/store"
+	"runner/internal/strava"
 )
 
 // SyncService orchestrates syncing data from Strava

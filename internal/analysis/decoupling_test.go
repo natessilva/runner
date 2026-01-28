@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"strava-fitness/internal/store"
+	"runner/internal/store"
 )
 
 func TestAerobicDecoupling(t *testing.T) {

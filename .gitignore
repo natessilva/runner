@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-strava-fitness
+runner
 runner
 
 # Test binary
@@ -26,7 +26,7 @@ go.work
 .DS_Store
 
 # Config and data (contains secrets)
-# These are stored in ~/.strava-fitness/ not in the repo
+# These are stored in ~/.runner/ not in the repo
 
 # Claude Code
 .claude/

@@ -1,6 +1,6 @@
 package analysis
 
-import "strava-fitness/internal/store"
+import "runner/internal/store"
 
 // ComputeActivityMetrics calculates all metrics for a single activity
 func ComputeActivityMetrics(activity store.Activity, streams []store.StreamPoint, zones HRZones) store.ActivityMetrics {

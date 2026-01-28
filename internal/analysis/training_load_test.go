@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"strava-fitness/internal/store"
+	"runner/internal/store"
 )
 
 func TestDefaultZones(t *testing.T) {

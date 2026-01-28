@@ -44,7 +44,7 @@ Run the app once to generate a config file:
 runner
 ```
 
-This creates `~/.strava-fitness/config.json`. Edit it with your Strava credentials:
+This creates `~/.runner/config.json`. Edit it with your Strava credentials:
 
 ```json
 {
@@ -121,7 +121,7 @@ The dashboard shows:
 
 ## Data Storage
 
-All data is stored locally in `~/.strava-fitness/`:
+All data is stored locally in `~/.runner/`:
 - `config.json` - Your configuration
 - `data.db` - SQLite database with activities and metrics
 

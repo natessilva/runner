@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"strava-fitness/internal/store"
+	"runner/internal/store"
 )
 
 // Helper functions for creating test data

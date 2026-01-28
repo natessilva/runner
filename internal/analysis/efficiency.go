@@ -1,6 +1,6 @@
 package analysis
 
-import "strava-fitness/internal/store"
+import "runner/internal/store"
 
 // EfficiencyFactor calculates pace:HR efficiency
 // Returns: (speed in m/s) / (average HR) * 100,000

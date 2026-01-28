@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"strava-fitness/internal/service"
+	"runner/internal/service"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"

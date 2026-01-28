@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"strava-fitness/internal/analysis"
-	"strava-fitness/internal/store"
+	"runner/internal/analysis"
+	"runner/internal/store"
 )
 
 // QueryService provides read-only queries for the TUI

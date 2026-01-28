@@ -10,12 +10,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"strava-fitness/internal/auth"
-	"strava-fitness/internal/config"
-	"strava-fitness/internal/service"
-	"strava-fitness/internal/store"
-	"strava-fitness/internal/strava"
-	"strava-fitness/internal/tui"
+	"runner/internal/auth"
+	"runner/internal/config"
+	"runner/internal/service"
+	"runner/internal/store"
+	"runner/internal/strava"
+	"runner/internal/tui"
 )
 
 func main() {

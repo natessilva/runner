@@ -1,9 +1,9 @@
 package tui
 
 import (
-	"strava-fitness/internal/service"
-	"strava-fitness/internal/store"
-	"strava-fitness/internal/strava"
+	"runner/internal/service"
+	"runner/internal/store"
+	"runner/internal/strava"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
