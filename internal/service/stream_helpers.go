@@ -9,16 +9,18 @@ import (
 
 // StreamStats holds aggregated metrics from stream points
 type StreamStats struct {
-	HRSum        float64
-	HRCount      int
-	CadenceSum   float64
-	CadenceCount int
+	HRSum         float64
+	HRCount       int
+	CadenceSum    float64
+	CadenceCount  int
+	MovingTime    int     // seconds of moving time (velocity > MinSpeedForPace)
+	TotalDistance float64 // total distance in meters
 }
 
 // AggregateStreamStats calculates HR and cadence stats from streams
 func AggregateStreamStats(streams []store.StreamPoint) StreamStats {
 	var stats StreamStats
-	for _, p := range streams {
+	for i, p := range streams {
 		if isValidHeartrate(p.Heartrate) {
 			stats.HRSum += float64(*p.Heartrate)
 			stats.HRCount++
@@ -26,6 +28,17 @@ func AggregateStreamStats(streams []store.StreamPoint) StreamStats {
 		if isValidCadence(p.Cadence) {
 			stats.CadenceSum += float64(*p.Cadence) * StravaCadenceMultiplier
 			stats.CadenceCount++
+		}
+		// Calculate moving time (only count time when actually moving)
+		if i > 0 && p.VelocitySmooth != nil && *p.VelocitySmooth > MinSpeedForPace {
+			stats.MovingTime += p.TimeOffset - streams[i-1].TimeOffset
+		}
+	}
+	// Get total distance from last point with distance data
+	for i := len(streams) - 1; i >= 0; i-- {
+		if streams[i].Distance != nil {
+			stats.TotalDistance = *streams[i].Distance
+			break
 		}
 	}
 	return stats

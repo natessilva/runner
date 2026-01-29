@@ -176,8 +176,8 @@ func (m StatsModel) View() string {
 	} else {
 		distLabel = "Miles"
 	}
-	header := tableHeaderStyle.Render(fmt.Sprintf("   %-12s  %5s  %8s  %7s  %7s",
-		"Period", "Runs", distLabel, "Avg HR", "Avg SPM"))
+	header := tableHeaderStyle.Render(fmt.Sprintf("   %-12s  %5s  %8s  %7s  %7s  %7s",
+		"Period", "Runs", distLabel, "Avg HR", "Avg SPM", "Pace"))
 	sections = append(sections, header)
 
 	// Reverse the data so most recent is first
@@ -215,18 +215,21 @@ func (m StatsModel) View() string {
 			}
 		}
 
+		paceStr := m.units.FormatPace(s.TotalMovingTime, s.TotalDistance)
+
 		cursor := "  "
 		if i-m.offset == m.cursor {
 			cursor = "> "
 		}
 
-		row := fmt.Sprintf("%s%-12s  %5d  %8s  %7s  %7s",
+		row := fmt.Sprintf("%s%-12s  %5d  %8s  %7s  %7s  %7s",
 			cursor,
 			s.PeriodLabel,
 			s.RunCount,
 			distStr,
 			hrStr,
 			spmStr,
+			paceStr,
 		)
 
 		if i-m.offset == m.cursor {

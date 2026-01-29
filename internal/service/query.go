@@ -666,13 +666,15 @@ func formatMinutes(m int) string {
 
 // PeriodStats holds aggregated stats for a time period
 type PeriodStats struct {
-	PeriodStart time.Time
-	PeriodLabel string
-	RunCount    int
-	TotalMiles  float64
-	AvgHR       float64
-	AvgSPM      float64
-	AvgEF       float64
+	PeriodStart     time.Time
+	PeriodLabel     string
+	RunCount        int
+	TotalMiles      float64
+	AvgHR           float64
+	AvgSPM          float64
+	AvgEF           float64
+	TotalMovingTime int     // total moving seconds for pace calculation
+	TotalDistance   float64 // total distance in meters for pace calculation
 }
 
 // ComparisonStats holds two periods and their deltas
@@ -747,6 +749,10 @@ func (q *QueryService) GetPeriodStats(periodType string, numPeriods int) ([]Peri
 		}
 
 		streamStats := AggregateStreamStats(streams)
+
+		// Accumulate moving time and distance for pace calculation
+		stats[periodIdx].TotalMovingTime += streamStats.MovingTime
+		stats[periodIdx].TotalDistance += streamStats.TotalDistance
 
 		// Weighted contribution to period average
 		if streamStats.HRCount > 0 {
