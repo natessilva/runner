@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -147,8 +148,15 @@ func scanActivity(row *sql.Row) (*Activity, error) {
 		return nil, err
 	}
 
-	a.StartDate, _ = time.Parse(time.RFC3339, startDate)
-	a.StartDateLocal, _ = time.Parse(time.RFC3339, startDateLocal)
+	var parseErr error
+	a.StartDate, parseErr = time.Parse(time.RFC3339, startDate)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing start_date %q: %w", startDate, parseErr)
+	}
+	a.StartDateLocal, parseErr = time.Parse(time.RFC3339, startDateLocal)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing start_date_local %q: %w", startDateLocal, parseErr)
+	}
 	a.HasHeartrate = hasHR == 1
 	a.StreamsSynced = streamsSynced == 1
 
@@ -174,8 +182,15 @@ func scanActivities(rows *sql.Rows) ([]Activity, error) {
 			return nil, err
 		}
 
-		a.StartDate, _ = time.Parse(time.RFC3339, startDate)
-		a.StartDateLocal, _ = time.Parse(time.RFC3339, startDateLocal)
+		var parseErr error
+		a.StartDate, parseErr = time.Parse(time.RFC3339, startDate)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing start_date %q: %w", startDate, parseErr)
+		}
+		a.StartDateLocal, parseErr = time.Parse(time.RFC3339, startDateLocal)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing start_date_local %q: %w", startDateLocal, parseErr)
+		}
 		a.HasHeartrate = hasHR == 1
 		a.StreamsSynced = streamsSynced == 1
 
@@ -183,6 +198,81 @@ func scanActivities(rows *sql.Rows) ([]Activity, error) {
 	}
 
 	return activities, rows.Err()
+}
+
+// GetActivitiesByIDs retrieves multiple activities by their IDs
+// Returns a map of activity ID to activity for easy lookup
+func (db *DB) GetActivitiesByIDs(ids []int64) (map[int64]*Activity, error) {
+	if len(ids) == 0 {
+		return make(map[int64]*Activity), nil
+	}
+
+	// Build query with placeholders
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `
+		SELECT id, athlete_id, name, type, start_date, start_date_local, timezone,
+			distance, moving_time, elapsed_time, total_elevation_gain,
+			average_speed, max_speed, average_heartrate, max_heartrate,
+			average_cadence, suffer_score, has_heartrate, streams_synced
+		FROM activities
+		WHERE id IN (` + joinStrings(placeholders, ",") + `)`
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64]*Activity)
+	for rows.Next() {
+		var a Activity
+		var startDate, startDateLocal string
+		var hasHR, streamsSynced int
+
+		err := rows.Scan(
+			&a.ID, &a.AthleteID, &a.Name, &a.Type, &startDate, &startDateLocal, &a.Timezone,
+			&a.Distance, &a.MovingTime, &a.ElapsedTime, &a.TotalElevationGain,
+			&a.AverageSpeed, &a.MaxSpeed, &a.AverageHeartrate, &a.MaxHeartrate,
+			&a.AverageCadence, &a.SufferScore, &hasHR, &streamsSynced,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		var parseErr error
+		a.StartDate, parseErr = time.Parse(time.RFC3339, startDate)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing start_date %q: %w", startDate, parseErr)
+		}
+		a.StartDateLocal, parseErr = time.Parse(time.RFC3339, startDateLocal)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing start_date_local %q: %w", startDateLocal, parseErr)
+		}
+		a.HasHeartrate = hasHR == 1
+		a.StreamsSynced = streamsSynced == 1
+
+		result[a.ID] = &a
+	}
+
+	return result, rows.Err()
+}
+
+// joinStrings joins strings with a separator (simple helper to avoid importing strings)
+func joinStrings(strs []string, sep string) string {
+	if len(strs) == 0 {
+		return ""
+	}
+	result := strs[0]
+	for i := 1; i < len(strs); i++ {
+		result += sep + strs[i]
+	}
+	return result
 }
 
 func boolToInt(b bool) int {

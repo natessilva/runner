@@ -36,6 +36,16 @@ type SyncProgress struct {
 	Error           error
 }
 
+// reportError sends an error to the progress channel if available
+func reportError(progress chan<- SyncProgress, phase string, err error) {
+	if progress != nil {
+		progress <- SyncProgress{
+			Phase: phase,
+			Error: err,
+		}
+	}
+}
+
 // SyncResult contains the results of a sync operation
 type SyncResult struct {
 	ActivitiesFetched int
@@ -117,7 +127,9 @@ func (s *SyncService) syncActivities(ctx context.Context, progress chan<- SyncPr
 			if a.Type == "Run" && a.HasHeartrate {
 				storeActivity := convertActivity(a)
 				if err := s.store.UpsertActivity(storeActivity); err != nil {
-					result.Errors = append(result.Errors, fmt.Errorf("storing activity %d: %w", a.ID, err))
+					storeErr := fmt.Errorf("storing activity %d: %w", a.ID, err)
+					result.Errors = append(result.Errors, storeErr)
+					reportError(progress, "activities", storeErr)
 					continue
 				}
 				result.ActivitiesStored++
@@ -181,7 +193,9 @@ func (s *SyncService) syncStreams(ctx context.Context, progress chan<- SyncProgr
 		streams, err := s.client.GetActivityStreams(ctx, activity.ID)
 		if err != nil {
 			// Log error but continue - some activities may not have streams
-			result.Errors = append(result.Errors, fmt.Errorf("activity %d (%s): %w", activity.ID, activity.Name, err))
+			streamErr := fmt.Errorf("activity %d (%s): %w", activity.ID, activity.Name, err)
+			result.Errors = append(result.Errors, streamErr)
+			reportError(progress, "streams", streamErr)
 			continue
 		}
 
@@ -189,14 +203,18 @@ func (s *SyncService) syncStreams(ctx context.Context, progress chan<- SyncProgr
 		points := convertStreams(activity.ID, streams)
 		if len(points) > 0 {
 			if err := s.store.SaveStreams(activity.ID, points); err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("saving streams for %d: %w", activity.ID, err))
+				saveErr := fmt.Errorf("saving streams for %d: %w", activity.ID, err)
+				result.Errors = append(result.Errors, saveErr)
+				reportError(progress, "streams", saveErr)
 				continue
 			}
 		}
 
 		// Mark activity as having streams synced
 		if err := s.store.MarkStreamsSynced(activity.ID); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("marking synced for %d: %w", activity.ID, err))
+			markErr := fmt.Errorf("marking synced for %d: %w", activity.ID, err)
+			result.Errors = append(result.Errors, markErr)
+			reportError(progress, "streams", markErr)
 			continue
 		}
 
@@ -251,7 +269,9 @@ func (s *SyncService) computeMetrics(ctx context.Context, progress chan<- SyncPr
 		// Get streams for this activity
 		streams, err := s.store.GetStreams(activity.ID)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("getting streams for %d: %w", activity.ID, err))
+			getErr := fmt.Errorf("getting streams for %d: %w", activity.ID, err)
+			result.Errors = append(result.Errors, getErr)
+			reportError(progress, "metrics", getErr)
 			continue
 		}
 
@@ -264,7 +284,9 @@ func (s *SyncService) computeMetrics(ctx context.Context, progress chan<- SyncPr
 
 		// Save metrics
 		if err := s.store.SaveActivityMetrics(&metrics); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("saving metrics for %d: %w", activity.ID, err))
+			saveErr := fmt.Errorf("saving metrics for %d: %w", activity.ID, err)
+			result.Errors = append(result.Errors, saveErr)
+			reportError(progress, "metrics", saveErr)
 			continue
 		}
 
@@ -332,19 +354,23 @@ func (s *SyncService) computePersonalRecords(ctx context.Context, progress chan<
 				AchievedAt:      activity.StartDate,
 			}
 			if updated, err := s.store.UpsertPersonalRecord(pr); err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("saving distance PR for %d: %w", activity.ID, err))
+				prErr := fmt.Errorf("saving distance PR for %d: %w", activity.ID, err)
+				result.Errors = append(result.Errors, prErr)
+				reportError(progress, "personal_records", prErr)
 			} else if updated {
 				result.PRsComputed++
 			}
 		}
 
 		// Check other achievements: longest run, highest elevation, fastest avg pace
-		s.checkOtherAchievements(&activity, result)
+		s.checkOtherAchievements(&activity, result, progress)
 
 		// Get streams for best effort analysis
 		streams, err := s.store.GetStreams(activity.ID)
 		if err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("getting streams for PR analysis %d: %w", activity.ID, err))
+			getErr := fmt.Errorf("getting streams for PR analysis %d: %w", activity.ID, err)
+			result.Errors = append(result.Errors, getErr)
+			reportError(progress, "personal_records", getErr)
 			continue
 		}
 
@@ -379,7 +405,9 @@ func (s *SyncService) computePersonalRecords(ctx context.Context, progress chan<
 				EndOffset:       &endOffset,
 			}
 			if updated, err := s.store.UpsertPersonalRecord(pr); err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("saving effort PR for %d: %w", activity.ID, err))
+				effortErr := fmt.Errorf("saving effort PR for %d: %w", activity.ID, err)
+				result.Errors = append(result.Errors, effortErr)
+				reportError(progress, "personal_records", effortErr)
 			} else if updated {
 				result.PRsComputed++
 			}
@@ -398,109 +426,38 @@ func (s *SyncService) computePersonalRecords(ctx context.Context, progress chan<
 }
 
 // checkOtherAchievements checks for longest run, highest elevation, fastest average pace
-func (s *SyncService) checkOtherAchievements(activity *store.Activity, result *SyncResult) {
-	// Longest run
+func (s *SyncService) checkOtherAchievements(activity *store.Activity, result *SyncResult, progress chan<- SyncProgress) {
 	pacePerMile := analysis.CalculatePacePerMile(activity.Distance, activity.MovingTime)
-	longestPR := &store.PersonalRecord{
-		Category:        "longest_run",
-		ActivityID:      activity.ID,
-		DistanceMeters:  activity.Distance,
-		DurationSeconds: activity.MovingTime,
-		PacePerMile:     &pacePerMile,
-		AvgHeartrate:    activity.AverageHeartrate,
-		AchievedAt:      activity.StartDate,
-	}
 
-	// For longest run, we need special logic - compare by distance not duration
-	existing, _ := s.store.GetPersonalRecordByCategory("longest_run")
-	if existing == nil || activity.Distance > existing.DistanceMeters {
-		// Force update by using a very fast duration to pass the comparison check
-		// Actually we need to handle this differently - longest run compares distance, not time
-		if _, err := s.store.Exec(`
-			INSERT INTO personal_records (
-				category, activity_id, distance_meters, duration_seconds,
-				pace_per_mile, avg_heartrate, achieved_at, start_offset, end_offset
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(category) DO UPDATE SET
-				activity_id = excluded.activity_id,
-				distance_meters = excluded.distance_meters,
-				duration_seconds = excluded.duration_seconds,
-				pace_per_mile = excluded.pace_per_mile,
-				avg_heartrate = excluded.avg_heartrate,
-				achieved_at = excluded.achieved_at
-			WHERE excluded.distance_meters > personal_records.distance_meters
-		`, longestPR.Category, longestPR.ActivityID, longestPR.DistanceMeters, longestPR.DurationSeconds,
-			longestPR.PacePerMile, longestPR.AvgHeartrate, longestPR.AchievedAt.Format(time.RFC3339), nil, nil,
-		); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("saving longest run PR: %w", err))
-		}
-	}
+	// Longest run - compare by distance
+	s.upsertAchievement("longest_run", activity, activity.Distance, pacePerMile, store.CompareDistance, result, progress)
 
-	// Highest elevation gain
-	elevPR := &store.PersonalRecord{
-		Category:        "highest_elevation",
-		ActivityID:      activity.ID,
-		DistanceMeters:  activity.TotalElevationGain, // Store elevation in distance field
-		DurationSeconds: activity.MovingTime,
-		PacePerMile:     &pacePerMile,
-		AvgHeartrate:    activity.AverageHeartrate,
-		AchievedAt:      activity.StartDate,
-	}
+	// Highest elevation - compare by elevation (stored in distance field)
+	s.upsertAchievement("highest_elevation", activity, activity.TotalElevationGain, pacePerMile, store.CompareDistance, result, progress)
 
-	existingElev, _ := s.store.GetPersonalRecordByCategory("highest_elevation")
-	if existingElev == nil || activity.TotalElevationGain > existingElev.DistanceMeters {
-		if _, err := s.store.Exec(`
-			INSERT INTO personal_records (
-				category, activity_id, distance_meters, duration_seconds,
-				pace_per_mile, avg_heartrate, achieved_at, start_offset, end_offset
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(category) DO UPDATE SET
-				activity_id = excluded.activity_id,
-				distance_meters = excluded.distance_meters,
-				duration_seconds = excluded.duration_seconds,
-				pace_per_mile = excluded.pace_per_mile,
-				avg_heartrate = excluded.avg_heartrate,
-				achieved_at = excluded.achieved_at
-			WHERE excluded.distance_meters > personal_records.distance_meters
-		`, elevPR.Category, elevPR.ActivityID, elevPR.DistanceMeters, elevPR.DurationSeconds,
-			elevPR.PacePerMile, elevPR.AvgHeartrate, elevPR.AchievedAt.Format(time.RFC3339), nil, nil,
-		); err != nil {
-			result.Errors = append(result.Errors, fmt.Errorf("saving highest elevation PR: %w", err))
-		}
-	}
-
-	// Fastest average pace (for runs > 1 mile)
+	// Fastest pace - compare by pace (only for runs > 1 mile)
 	if activity.Distance >= analysis.Distance1Mile {
-		existingPace, _ := s.store.GetPersonalRecordByCategory("fastest_pace")
-		if existingPace == nil || (existingPace.PacePerMile != nil && pacePerMile < *existingPace.PacePerMile) {
-			pacePR := &store.PersonalRecord{
-				Category:        "fastest_pace",
-				ActivityID:      activity.ID,
-				DistanceMeters:  activity.Distance,
-				DurationSeconds: activity.MovingTime,
-				PacePerMile:     &pacePerMile,
-				AvgHeartrate:    activity.AverageHeartrate,
-				AchievedAt:      activity.StartDate,
-			}
-			if _, err := s.store.Exec(`
-				INSERT INTO personal_records (
-					category, activity_id, distance_meters, duration_seconds,
-					pace_per_mile, avg_heartrate, achieved_at, start_offset, end_offset
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT(category) DO UPDATE SET
-					activity_id = excluded.activity_id,
-					distance_meters = excluded.distance_meters,
-					duration_seconds = excluded.duration_seconds,
-					pace_per_mile = excluded.pace_per_mile,
-					avg_heartrate = excluded.avg_heartrate,
-					achieved_at = excluded.achieved_at
-				WHERE excluded.pace_per_mile < personal_records.pace_per_mile
-			`, pacePR.Category, pacePR.ActivityID, pacePR.DistanceMeters, pacePR.DurationSeconds,
-				pacePR.PacePerMile, pacePR.AvgHeartrate, pacePR.AchievedAt.Format(time.RFC3339), nil, nil,
-			); err != nil {
-				result.Errors = append(result.Errors, fmt.Errorf("saving fastest pace PR: %w", err))
-			}
-		}
+		s.upsertAchievement("fastest_pace", activity, activity.Distance, pacePerMile, store.ComparePace, result, progress)
+	}
+}
+
+// upsertAchievement creates or updates a PR using the specified comparison mode
+func (s *SyncService) upsertAchievement(category string, activity *store.Activity, distance, pace float64, mode store.CompareMode, result *SyncResult, progress chan<- SyncProgress) {
+	pr := &store.PersonalRecord{
+		Category:        category,
+		ActivityID:      activity.ID,
+		DistanceMeters:  distance,
+		DurationSeconds: activity.MovingTime,
+		PacePerMile:     &pace,
+		AvgHeartrate:    activity.AverageHeartrate,
+		AchievedAt:      activity.StartDate,
+	}
+	if updated, err := s.store.UpsertPersonalRecordWithMode(pr, mode); err != nil {
+		upsertErr := fmt.Errorf("saving %s PR: %w", category, err)
+		result.Errors = append(result.Errors, upsertErr)
+		reportError(progress, "personal_records", upsertErr)
+	} else if updated {
+		result.PRsComputed++
 	}
 }
 

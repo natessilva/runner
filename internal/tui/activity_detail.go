@@ -63,8 +63,12 @@ func (m ActivityDetailModel) loadDetail() tea.Msg {
 		return activityDetailLoadedMsg{detail: nil, prs: nil, err: err}
 	}
 
-	// Also load PRs for this activity
-	prs, _ := m.queryService.GetActivityPRs(m.activityID)
+	// Also load PRs for this activity (non-fatal if this fails)
+	prs, err := m.queryService.GetActivityPRs(m.activityID)
+	if err != nil {
+		// PRs are supplementary - still show activity detail even if PRs fail to load
+		return activityDetailLoadedMsg{detail: detail, prs: nil, err: nil}
+	}
 	return activityDetailLoadedMsg{detail: detail, prs: prs, err: nil}
 }
 

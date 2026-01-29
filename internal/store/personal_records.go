@@ -3,24 +3,55 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
 // ErrPersonalRecordNotFound is returned when a personal record doesn't exist
 var ErrPersonalRecordNotFound = errors.New("personal record not found")
 
+// CompareMode determines how personal records are compared
+type CompareMode int
+
+const (
+	CompareDuration CompareMode = iota // lower duration wins (default)
+	CompareDistance                    // higher distance wins (longest_run)
+	ComparePace                        // lower pace wins (fastest_pace)
+)
+
 // UpsertPersonalRecord inserts or updates a personal record
 // Only updates if the new record is faster (lower duration for same distance category)
 func (db *DB) UpsertPersonalRecord(pr *PersonalRecord) (updated bool, err error) {
+	return db.UpsertPersonalRecordWithMode(pr, CompareDuration)
+}
+
+// UpsertPersonalRecordWithMode inserts or updates a personal record with the specified comparison mode.
+// - CompareDuration: lower duration wins (default, for race times)
+// - CompareDistance: higher distance wins (longest_run, highest_elevation)
+// - ComparePace: lower pace wins (fastest_pace)
+func (db *DB) UpsertPersonalRecordWithMode(pr *PersonalRecord, mode CompareMode) (updated bool, err error) {
 	// Check if a record already exists for this category
 	existing, err := db.GetPersonalRecordByCategory(pr.Category)
 	if err != nil && !errors.Is(err, ErrPersonalRecordNotFound) {
 		return false, err
 	}
 
-	// If record exists and is faster, don't update
-	if existing != nil && existing.DurationSeconds <= pr.DurationSeconds {
-		return false, nil
+	// Compare based on mode
+	if existing != nil {
+		switch mode {
+		case CompareDuration:
+			if existing.DurationSeconds <= pr.DurationSeconds {
+				return false, nil
+			}
+		case CompareDistance:
+			if existing.DistanceMeters >= pr.DistanceMeters {
+				return false, nil
+			}
+		case ComparePace:
+			if existing.PacePerMile != nil && pr.PacePerMile != nil && *existing.PacePerMile <= *pr.PacePerMile {
+				return false, nil
+			}
+		}
 	}
 
 	_, err = db.Exec(`
@@ -125,7 +156,11 @@ func scanPersonalRecord(row *sql.Row) (*PersonalRecord, error) {
 		return nil, err
 	}
 
-	pr.AchievedAt, _ = time.Parse(time.RFC3339, achievedAt)
+	var parseErr error
+	pr.AchievedAt, parseErr = time.Parse(time.RFC3339, achievedAt)
+	if parseErr != nil {
+		return nil, fmt.Errorf("parsing achieved_at %q: %w", achievedAt, parseErr)
+	}
 	return &pr, nil
 }
 
@@ -145,7 +180,11 @@ func scanPersonalRecords(rows *sql.Rows) ([]PersonalRecord, error) {
 			return nil, err
 		}
 
-		pr.AchievedAt, _ = time.Parse(time.RFC3339, achievedAt)
+		var parseErr error
+		pr.AchievedAt, parseErr = time.Parse(time.RFC3339, achievedAt)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parsing achieved_at %q: %w", achievedAt, parseErr)
+		}
 		records = append(records, pr)
 	}
 
