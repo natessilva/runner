@@ -10,15 +10,26 @@ import (
 
 // HRZones represents athlete's heart rate zones
 type HRZones struct {
-	RestingHR float64
-	MaxHR     float64
+	RestingHR   float64
+	MaxHR       float64
+	ThresholdHR float64
+}
+
+// NewHRZones creates an HRZones with the given values
+func NewHRZones(restingHR, maxHR, thresholdHR float64) HRZones {
+	return HRZones{
+		RestingHR:   restingHR,
+		MaxHR:       maxHR,
+		ThresholdHR: thresholdHR,
+	}
 }
 
 // DefaultZones returns sensible defaults if not configured
 func DefaultZones() HRZones {
 	return HRZones{
-		RestingHR: 50,
-		MaxHR:     185,
+		RestingHR:   50,
+		MaxHR:       185,
+		ThresholdHR: 165,
 	}
 }
 

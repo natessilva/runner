@@ -6,21 +6,24 @@ import (
 	"time"
 
 	"runner/internal/analysis"
+	"runner/internal/config"
 	"runner/internal/store"
 	"runner/internal/strava"
 )
 
 // SyncService orchestrates syncing data from Strava
 type SyncService struct {
-	client *strava.Client
-	store  *store.DB
+	client  *strava.Client
+	store   *store.DB
+	hrZones analysis.HRZones
 }
 
-// NewSyncService creates a new sync service
-func NewSyncService(client *strava.Client, store *store.DB) *SyncService {
+// NewSyncService creates a new sync service with athlete config for HR calculations
+func NewSyncService(client *strava.Client, store *store.DB, athleteCfg config.AthleteConfig) *SyncService {
 	return &SyncService{
-		client: client,
-		store:  store,
+		client:  client,
+		store:   store,
+		hrZones: analysis.NewHRZones(athleteCfg.RestingHR, athleteCfg.MaxHR, athleteCfg.ThresholdHR),
 	}
 }
 
@@ -221,7 +224,7 @@ func (s *SyncService) computeMetrics(ctx context.Context, progress chan<- SyncPr
 		progress <- SyncProgress{Phase: "metrics", Total: len(activities), Completed: 0}
 	}
 
-	zones := analysis.DefaultZones()
+	zones := s.hrZones
 
 	for i, activity := range activities {
 		select {

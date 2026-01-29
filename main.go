@@ -103,11 +103,11 @@ func run() error {
 
 	// Create services
 	stravaClient := strava.NewClient(tokenSource)
-	syncSvc := service.NewSyncService(stravaClient, db)
-	querySvc := service.NewQueryService(db, cfg.Athlete.MaxHR)
+	syncSvc := service.NewSyncService(stravaClient, db, cfg.Athlete)
+	querySvc := service.NewQueryService(db, cfg.Athlete)
 
 	// Launch TUI
-	app := tui.NewApp(db, stravaClient, syncSvc, querySvc)
+	app := tui.NewApp(db, stravaClient, syncSvc, querySvc, cfg.Display)
 	p := tea.NewProgram(app, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {

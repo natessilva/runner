@@ -2,6 +2,8 @@ package service
 
 import (
 	"testing"
+
+	"runner/internal/config"
 )
 
 func TestFormatPace(t *testing.T) {
@@ -59,33 +61,33 @@ func TestFormatMinutes(t *testing.T) {
 
 func TestNewQueryService(t *testing.T) {
 	tests := []struct {
-		name     string
-		maxHR    float64
-		expected float64
+		name       string
+		athleteCfg config.AthleteConfig
+		expected   float64
 	}{
 		{
-			name:     "uses provided maxHR",
-			maxHR:    190,
-			expected: 190,
+			name:       "uses provided maxHR",
+			athleteCfg: config.AthleteConfig{MaxHR: 190, RestingHR: 50, ThresholdHR: 165},
+			expected:   190,
 		},
 		{
-			name:     "defaults to 185 when maxHR is 0",
-			maxHR:    0,
-			expected: 185,
+			name:       "defaults to 185 when maxHR is 0",
+			athleteCfg: config.AthleteConfig{MaxHR: 0, RestingHR: 50, ThresholdHR: 0},
+			expected:   185,
 		},
 		{
-			name:     "accepts custom maxHR",
-			maxHR:    200,
-			expected: 200,
+			name:       "accepts custom maxHR",
+			athleteCfg: config.AthleteConfig{MaxHR: 200, RestingHR: 55, ThresholdHR: 175},
+			expected:   200,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Pass nil for store since we're only testing maxHR handling
-			svc := NewQueryService(nil, tt.maxHR)
-			if svc.maxHR != tt.expected {
-				t.Errorf("maxHR = %v, want %v", svc.maxHR, tt.expected)
+			// Pass nil for store since we're only testing athleteCfg handling
+			svc := NewQueryService(nil, tt.athleteCfg)
+			if svc.athleteCfg.MaxHR != tt.expected {
+				t.Errorf("MaxHR = %v, want %v", svc.athleteCfg.MaxHR, tt.expected)
 			}
 		})
 	}

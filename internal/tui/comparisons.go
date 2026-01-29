@@ -12,6 +12,7 @@ import (
 // ComparisonsModel is the trend comparisons screen model
 type ComparisonsModel struct {
 	queryService *service.QueryService
+	units        Units
 	comparisons  []service.ComparisonStats
 	periodType   string // "weekly" or "monthly"
 	loading      bool
@@ -19,9 +20,10 @@ type ComparisonsModel struct {
 }
 
 // NewComparisonsModel creates a new comparisons model
-func NewComparisonsModel(qs *service.QueryService) ComparisonsModel {
+func NewComparisonsModel(qs *service.QueryService, units Units) ComparisonsModel {
 	return ComparisonsModel{
 		queryService: qs,
+		units:        units,
 		periodType:   "weekly",
 		loading:      true,
 	}
@@ -130,9 +132,17 @@ func (m ComparisonsModel) renderComparison(comp service.ComparisonStats) string 
 	headerLine := tableHeaderStyle.Render(header)
 
 	// Data rows
+	distLabel := "Distance"
+	currentDist := m.formatDistance(comp.Current.TotalMiles)
+	prevDist := m.formatDistance(comp.Previous.TotalMiles)
+	deltaDist := comp.DeltaMiles
+	if !m.units.IsMiles() {
+		deltaDist = comp.DeltaMiles * 1.60934
+	}
+
 	rows := []string{
 		m.renderRow("Runs", fmt.Sprintf("%d", comp.Current.RunCount), fmt.Sprintf("%d", comp.Previous.RunCount), comp.DeltaRuns, false),
-		m.renderRow("Miles", formatMiles(comp.Current.TotalMiles), formatMiles(comp.Previous.TotalMiles), comp.DeltaMiles, false),
+		m.renderRow(distLabel, currentDist, prevDist, deltaDist, false),
 		m.renderRow("Avg HR", formatHR(comp.Current.AvgHR), formatHR(comp.Previous.AvgHR), comp.DeltaHR, true),
 		m.renderRow("Avg Cadence", formatSPM(comp.Current.AvgSPM), formatSPM(comp.Previous.AvgSPM), comp.DeltaSPM, false),
 		m.renderRow("Avg EF", formatEF(comp.Current.AvgEF), formatEF(comp.Previous.AvgEF), comp.DeltaEF, false),
@@ -200,11 +210,14 @@ func (m ComparisonsModel) renderRow(label, current, previous string, delta inter
 	return tableRowStyle.Render(row)
 }
 
-func formatMiles(m float64) string {
-	if m == 0 {
+func (m ComparisonsModel) formatDistance(miles float64) string {
+	if miles == 0 {
 		return "-"
 	}
-	return fmt.Sprintf("%.1f", m)
+	if m.units.IsMiles() {
+		return fmt.Sprintf("%.1f", miles)
+	}
+	return fmt.Sprintf("%.1f", miles*1.60934)
 }
 
 func formatHR(hr float64) string {

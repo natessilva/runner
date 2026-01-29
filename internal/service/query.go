@@ -5,21 +5,29 @@ import (
 	"time"
 
 	"runner/internal/analysis"
+	"runner/internal/config"
 	"runner/internal/store"
 )
 
 // QueryService provides read-only queries for the TUI
 type QueryService struct {
-	store *store.DB
-	maxHR float64 // Configured max HR for zone calculations
+	store      *store.DB
+	athleteCfg config.AthleteConfig
 }
 
-// NewQueryService creates a new query service
-func NewQueryService(store *store.DB, maxHR float64) *QueryService {
-	if maxHR == 0 {
-		maxHR = DefaultMaxHR
+// NewQueryService creates a new query service with athlete config
+func NewQueryService(store *store.DB, athleteCfg config.AthleteConfig) *QueryService {
+	// Apply defaults if not set
+	if athleteCfg.MaxHR == 0 {
+		athleteCfg.MaxHR = DefaultMaxHR
 	}
-	return &QueryService{store: store, maxHR: maxHR}
+	if athleteCfg.RestingHR == 0 {
+		athleteCfg.RestingHR = 50
+	}
+	if athleteCfg.ThresholdHR == 0 {
+		athleteCfg.ThresholdHR = 165
+	}
+	return &QueryService{store: store, athleteCfg: athleteCfg}
 }
 
 // DashboardData contains all data needed for the dashboard
@@ -383,6 +391,7 @@ type ActivityDetail struct {
 	AvgCadence    float64
 	MaxHR         int // Observed max HR during this activity
 	ConfiguredMax int // Configured max HR used for zone calculations
+	ThresholdHR   int // Configured threshold HR (0 if using %maxHR zones)
 }
 
 // GetActivityDetailByID returns detailed analysis for a single activity
@@ -402,7 +411,8 @@ func (q *QueryService) GetActivityDetailByID(id int64) (*ActivityDetail, error) 
 		Activity: ActivityWithMetrics{
 			Activity: *activity,
 		},
-		ConfiguredMax: int(q.maxHR),
+		ConfiguredMax: int(q.athleteCfg.MaxHR),
+		ThresholdHR:   int(q.athleteCfg.ThresholdHR),
 	}
 	if metrics != nil {
 		detail.Activity.Metrics = *metrics
@@ -413,12 +423,12 @@ func (q *QueryService) GetActivityDetailByID(id int64) (*ActivityDetail, error) 
 	}
 
 	// Calculate splits, HR zones, and chart data from streams
-	detail.calculateFromStreams(streams, activity.Distance, int(q.maxHR))
+	detail.calculateFromStreams(streams, activity.Distance, int(q.athleteCfg.MaxHR), int(q.athleteCfg.ThresholdHR))
 
 	return detail, nil
 }
 
-func (d *ActivityDetail) calculateFromStreams(streams []store.StreamPoint, totalDistance float64, configuredMaxHR int) {
+func (d *ActivityDetail) calculateFromStreams(streams []store.StreamPoint, totalDistance float64, configuredMaxHR int, thresholdHR int) {
 	// Mile splits
 	currentMile := 1
 	mileStartIdx := 0
@@ -461,7 +471,7 @@ func (d *ActivityDetail) calculateFromStreams(streams []store.StreamPoint, total
 
 	// Use configured max HR for zone calculations (not the activity's max)
 	if configuredMaxHR > 0 {
-		d.HRZones = d.calculateHRZones(streams, configuredMaxHR)
+		d.HRZones = d.calculateHRZones(streams, configuredMaxHR, thresholdHR)
 	}
 
 	// Calculate averages using helper
@@ -577,13 +587,43 @@ func (d *ActivityDetail) calculateSplit(streams []store.StreamPoint, startIdx, e
 	return split
 }
 
-func (d *ActivityDetail) calculateHRZones(streams []store.StreamPoint, maxHR int) []HRZoneTime {
-	zones := []HRZoneTime{
-		{Zone: 1, Name: "Recovery (<60%)"},
-		{Zone: 2, Name: "Aerobic (60-70%)"},
-		{Zone: 3, Name: "Tempo (70-80%)"},
-		{Zone: 4, Name: "Threshold (80-90%)"},
-		{Zone: 5, Name: "VO2max (>90%)"},
+func (d *ActivityDetail) calculateHRZones(streams []store.StreamPoint, maxHR int, thresholdHR int) []HRZoneTime {
+	// Use threshold-based zones if thresholdHR is set, otherwise use %maxHR zones
+	var zones []HRZoneTime
+	var thresholds []float64
+
+	if thresholdHR > 0 {
+		// Threshold-based zones (based on % of threshold HR)
+		// Zone 1: <75% LTHR, Zone 2: 75-84% LTHR, Zone 3: 85-94% LTHR, Zone 4: 95-100% LTHR, Zone 5: >100% LTHR
+		zones = []HRZoneTime{
+			{Zone: 1, Name: "Warm Up (<75% LTHR)"},
+			{Zone: 2, Name: "Easy (75-84% LTHR)"},
+			{Zone: 3, Name: "Aerobic (85-94% LTHR)"},
+			{Zone: 4, Name: "Threshold (95-100% LTHR)"},
+			{Zone: 5, Name: "Maximum (>100% LTHR)"},
+		}
+		// Convert zone thresholds to actual HR values then to % of max for comparison
+		// Zone boundaries match labels: Z2 75-84%, Z3 85-94%, Z4 95-100%
+		// Using exclusive upper bounds so Z3 includes up to 94.99% and Z4 starts at 95%
+		lthr := float64(thresholdHR)
+		maxF := float64(maxHR)
+		thresholds = []float64{
+			(0.75 * lthr) / maxF, // Zone 1 upper bound: <75% LTHR
+			(0.85 * lthr) / maxF, // Zone 2 upper bound: <85% LTHR
+			(0.95 * lthr) / maxF, // Zone 3 upper bound: <95% LTHR
+			lthr / maxF,          // Zone 4 upper bound: <=100% LTHR
+			1.0,                  // Zone 5 upper bound: >100% LTHR
+		}
+	} else {
+		// Traditional %maxHR zones
+		zones = []HRZoneTime{
+			{Zone: 1, Name: "Warm Up (<60%)"},
+			{Zone: 2, Name: "Easy (60-70%)"},
+			{Zone: 3, Name: "Aerobic (70-80%)"},
+			{Zone: 4, Name: "Threshold (80-90%)"},
+			{Zone: 5, Name: "Maximum (>90%)"},
+		}
+		thresholds = HRZoneThresholds
 	}
 
 	totalSeconds := 0
@@ -596,7 +636,7 @@ func (d *ActivityDetail) calculateHRZones(streams []store.StreamPoint, maxHR int
 		pct := float64(*p.Heartrate) / float64(maxHR)
 		totalSeconds++
 
-		for i, thresh := range HRZoneThresholds {
+		for i, thresh := range thresholds {
 			if pct <= thresh {
 				zones[i].Seconds++
 				break

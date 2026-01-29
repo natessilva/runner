@@ -12,6 +12,7 @@ import (
 // StatsModel is the period stats screen model
 type StatsModel struct {
 	queryService *service.QueryService
+	units        Units
 	stats        []service.PeriodStats
 	periodType   string // "weekly" or "monthly"
 	loading      bool
@@ -23,9 +24,10 @@ type StatsModel struct {
 }
 
 // NewStatsModel creates a new stats model
-func NewStatsModel(qs *service.QueryService) StatsModel {
+func NewStatsModel(qs *service.QueryService, units Units) StatsModel {
 	return StatsModel{
 		queryService: qs,
+		units:        units,
 		periodType:   "weekly",
 		loading:      true,
 		pageSize:     15,
@@ -168,8 +170,14 @@ func (m StatsModel) View() string {
 	sections = append(sections, title)
 
 	// Header
+	distLabel := m.units.DistanceLabelLong()
+	if distLabel == "km" {
+		distLabel = "KM"
+	} else {
+		distLabel = "Miles"
+	}
 	header := tableHeaderStyle.Render(fmt.Sprintf("   %-12s  %5s  %8s  %7s  %7s",
-		"Period", "Runs", "Miles", "Avg HR", "Avg SPM"))
+		"Period", "Runs", distLabel, "Avg HR", "Avg SPM"))
 	sections = append(sections, header)
 
 	// Reverse the data so most recent is first
@@ -197,9 +205,14 @@ func (m StatsModel) View() string {
 			spmStr = fmt.Sprintf("%.0f", s.AvgSPM)
 		}
 
-		milesStr := "-"
+		distStr := "-"
 		if s.TotalMiles > 0 {
-			milesStr = fmt.Sprintf("%.1f", s.TotalMiles)
+			// TotalMiles is in miles, convert if needed
+			if m.units.IsMiles() {
+				distStr = fmt.Sprintf("%.1f", s.TotalMiles)
+			} else {
+				distStr = fmt.Sprintf("%.1f", s.TotalMiles*1.60934)
+			}
 		}
 
 		cursor := "  "
@@ -211,7 +224,7 @@ func (m StatsModel) View() string {
 			cursor,
 			s.PeriodLabel,
 			s.RunCount,
-			milesStr,
+			distStr,
 			hrStr,
 			spmStr,
 		)

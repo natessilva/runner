@@ -157,6 +157,20 @@ func (c *Config) Validate() error {
 	if c.Strava.ClientSecret == "" || c.Strava.ClientSecret == "YOUR_CLIENT_SECRET" {
 		return errors.New("strava.client_secret is required - get it from https://www.strava.com/settings/api")
 	}
+
+	// Validate display units
+	if c.Display.DistanceUnit != "" && c.Display.DistanceUnit != "km" && c.Display.DistanceUnit != "mi" {
+		return fmt.Errorf("display.distance_unit must be \"km\" or \"mi\", got %q", c.Display.DistanceUnit)
+	}
+	if c.Display.PaceUnit != "" && c.Display.PaceUnit != "min/km" && c.Display.PaceUnit != "min/mi" {
+		return fmt.Errorf("display.pace_unit must be \"min/km\" or \"min/mi\", got %q", c.Display.PaceUnit)
+	}
+
+	// Validate threshold_hr < max_hr when both are set
+	if c.Athlete.ThresholdHR > 0 && c.Athlete.MaxHR > 0 && c.Athlete.ThresholdHR >= c.Athlete.MaxHR {
+		return fmt.Errorf("athlete.threshold_hr (%v) must be less than athlete.max_hr (%v)", c.Athlete.ThresholdHR, c.Athlete.MaxHR)
+	}
+
 	return nil
 }
 

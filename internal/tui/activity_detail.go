@@ -15,6 +15,7 @@ import (
 // ActivityDetailModel is the activity detail screen model
 type ActivityDetailModel struct {
 	queryService *service.QueryService
+	units        Units
 	activityID   int64
 	detail       *service.ActivityDetail
 	viewport     viewport.Model
@@ -26,9 +27,10 @@ type ActivityDetailModel struct {
 }
 
 // NewActivityDetailModel creates a new activity detail model
-func NewActivityDetailModel(qs *service.QueryService, activityID int64, width, height int) ActivityDetailModel {
+func NewActivityDetailModel(qs *service.QueryService, units Units, activityID int64, width, height int) ActivityDetailModel {
 	m := ActivityDetailModel{
 		queryService: qs,
+		units:        units,
 		activityID:   activityID,
 		loading:      true,
 		width:        width,
@@ -159,20 +161,12 @@ func (m ActivityDetailModel) renderHeader() string {
 
 	// Date and basic stats
 	date := a.StartDateLocal.Format("Monday, January 2, 2006 at 3:04 PM")
-	distance := a.Distance / 1609.34
 	duration := formatDuration(a.MovingTime)
-
-	pace := "-"
-	if a.MovingTime > 0 && a.Distance > 0 {
-		paceSecsPerMile := float64(a.MovingTime) / distance
-		paceMin := int(paceSecsPerMile) / 60
-		paceSec := int(paceSecsPerMile) % 60
-		pace = fmt.Sprintf("%d:%02d/mi", paceMin, paceSec)
-	}
+	pace := m.units.FormatPaceWithUnit(a.MovingTime, a.Distance)
 
 	subtitle := lipgloss.NewStyle().Foreground(mutedColor).Render(date)
 
-	stats := fmt.Sprintf("%.2f mi  •  %s  •  %s", distance, duration, pace)
+	stats := fmt.Sprintf("%s  •  %s  •  %s", m.units.FormatDistance(a.Distance), duration, pace)
 	statsLine := lipgloss.NewStyle().Foreground(textColor).Bold(true).Render(stats)
 
 	return lipgloss.JoinVertical(lipgloss.Left, "", title, subtitle, statsLine, "")
@@ -231,8 +225,10 @@ func (m ActivityDetailModel) renderSplits() string {
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Mile Splits"))
 
 	// Header
+	// Splits are calculated per mile
 	header := fmt.Sprintf("  %-6s  %8s  %6s  %6s", "Mile", "Pace", "HR", "Cadence")
 	lines = append(lines, lipgloss.NewStyle().Foreground(primaryColor).Render(header))
+	// Note: Pace shown here is always per-mile as calculated by service
 
 	// Find fastest split for highlighting
 	fastestPace := 9999
@@ -270,7 +266,12 @@ func (m ActivityDetailModel) renderSplits() string {
 func (m ActivityDetailModel) renderHRZones() string {
 	var lines []string
 
-	title := fmt.Sprintf("HR Zone Distribution (based on max HR %d)", m.detail.ConfiguredMax)
+	var title string
+	if m.detail.ThresholdHR > 0 {
+		title = fmt.Sprintf("HR Zone Distribution (LTHR %d, max HR %d)", m.detail.ThresholdHR, m.detail.ConfiguredMax)
+	} else {
+		title = fmt.Sprintf("HR Zone Distribution (based on max HR %d)", m.detail.ConfiguredMax)
+	}
 	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(title))
 
 	zoneColors := []lipgloss.Color{
@@ -306,10 +307,11 @@ func (m ActivityDetailModel) renderHRZones() string {
 func (m ActivityDetailModel) renderPaceChart() string {
 	var lines []string
 
-	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render("Pace Over Time (min/mi)"))
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(fmt.Sprintf("Pace Over Time (%s)", m.units.PaceLabel())))
 
 	// Filter out zeros and prepare data
-	data := m.detail.PaceData
+	// PaceData is in min/mi, convert if user prefers min/km
+	data := m.units.ConvertPaceData(m.detail.PaceData)
 	if len(data) > 60 {
 		// Downsample for very long runs
 		data = downsample(data, 60)

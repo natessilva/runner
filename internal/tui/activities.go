@@ -12,6 +12,7 @@ import (
 // ActivitiesModel is the activities list screen model
 type ActivitiesModel struct {
 	queryService *service.QueryService
+	units        Units
 	activities   []service.ActivityWithMetrics
 	cursor       int
 	offset       int
@@ -22,9 +23,10 @@ type ActivitiesModel struct {
 }
 
 // NewActivitiesModel creates a new activities model
-func NewActivitiesModel(qs *service.QueryService) ActivitiesModel {
+func NewActivitiesModel(qs *service.QueryService, units Units) ActivitiesModel {
 	return ActivitiesModel{
 		queryService: qs,
+		units:        units,
 		pageSize:     15,
 		loading:      true,
 	}
@@ -150,14 +152,8 @@ func (m ActivitiesModel) View() string {
 		a := am.Activity
 		met := am.Metrics
 
-		// Calculate pace
-		pace := "-"
-		if a.MovingTime > 0 && a.Distance > 0 {
-			paceSecsPerMile := float64(a.MovingTime) / (a.Distance / 1609.34)
-			paceMin := int(paceSecsPerMile) / 60
-			paceSec := int(paceSecsPerMile) % 60
-			pace = fmt.Sprintf("%d:%02d", paceMin, paceSec)
-		}
+		// Calculate pace using units helper
+		pace := m.units.FormatPace(a.MovingTime, a.Distance)
 
 		ef := "-"
 		if met.EfficiencyFactor != nil {
@@ -190,11 +186,11 @@ func (m ActivitiesModel) View() string {
 			cursor = "> "
 		}
 
-		row := fmt.Sprintf("%s%-10s  %-20s  %6.1fmi  %5s  %3s  %3s  %5s  %6s  %5s",
+		row := fmt.Sprintf("%s%-10s  %-20s  %8s  %5s  %3s  %3s  %5s  %6s  %5s",
 			cursor,
 			a.StartDateLocal.Format("Jan 02"),
 			truncateName(a.Name, 20),
-			a.Distance/1609.34,
+			m.units.FormatDistance(a.Distance),
 			pace,
 			hr,
 			spm,

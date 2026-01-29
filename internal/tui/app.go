@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"runner/internal/config"
 	"runner/internal/service"
 	"runner/internal/store"
 	"runner/internal/strava"
@@ -37,10 +38,13 @@ type App struct {
 	help           HelpModel
 
 	// Services
-	db          *store.DB
+	db           *store.DB
 	queryService *service.QueryService
 	syncService  *service.SyncService
 	stravaClient *strava.Client
+
+	// Display config
+	units Units
 
 	// Window dimensions
 	width  int
@@ -51,17 +55,19 @@ type App struct {
 }
 
 // NewApp creates a new App with all dependencies
-func NewApp(db *store.DB, stravaClient *strava.Client, syncService *service.SyncService, queryService *service.QueryService) *App {
+func NewApp(db *store.DB, stravaClient *strava.Client, syncService *service.SyncService, queryService *service.QueryService, displayCfg config.DisplayConfig) *App {
+	units := NewUnits(displayCfg)
 	return &App{
 		screen:       ScreenDashboard,
 		db:           db,
 		queryService: queryService,
 		syncService:  syncService,
 		stravaClient: stravaClient,
-		dashboard:    NewDashboardModel(queryService, 0, 0),
-		activities:   NewActivitiesModel(queryService),
-		stats:        NewStatsModel(queryService),
-		comparisons:  NewComparisonsModel(queryService),
+		units:        units,
+		dashboard:    NewDashboardModel(queryService, units, 0, 0),
+		activities:   NewActivitiesModel(queryService, units),
+		stats:        NewStatsModel(queryService, units),
+		comparisons:  NewComparisonsModel(queryService, units),
 		syncScreen:   NewSyncModel(syncService),
 		help:         NewHelpModel(),
 	}
@@ -83,7 +89,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, tea.Quit
 			case "1":
 				a.screen = ScreenDashboard
-				a.dashboard = NewDashboardModel(a.queryService, a.width, a.height)
+				a.dashboard = NewDashboardModel(a.queryService, a.units, a.width, a.height)
 				return a, a.dashboard.Init()
 			case "2":
 				a.screen = ScreenActivities
@@ -122,12 +128,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SyncCompleteMsg:
 		// Refresh dashboard after sync
 		a.screen = ScreenDashboard
-		a.dashboard = NewDashboardModel(a.queryService, a.width, a.height)
+		a.dashboard = NewDashboardModel(a.queryService, a.units, a.width, a.height)
 		return a, a.dashboard.Init()
 
 	case OpenActivityDetailMsg:
 		a.screen = ScreenActivityDetail
-		a.activityDetail = NewActivityDetailModel(a.queryService, msg.ActivityID, a.width, a.height)
+		a.activityDetail = NewActivityDetailModel(a.queryService, a.units, msg.ActivityID, a.width, a.height)
 		return a, a.activityDetail.Init()
 	}
 

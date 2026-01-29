@@ -5,10 +5,20 @@ import (
 	"testing"
 	"time"
 
+	"runner/internal/config"
 	"runner/internal/store"
 
 	_ "modernc.org/sqlite"
 )
+
+// testAthleteConfig returns a default AthleteConfig for tests
+func testAthleteConfig() config.AthleteConfig {
+	return config.AthleteConfig{
+		RestingHR:   50,
+		MaxHR:       185,
+		ThresholdHR: 165,
+	}
+}
 
 // openTestDB creates an in-memory SQLite database with migrations applied
 func openTestDB(t *testing.T) *store.DB {
@@ -183,7 +193,7 @@ func TestQueryService_GetActivitiesList(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	// Create test activities with metrics
 	now := time.Now()
@@ -257,7 +267,7 @@ func TestQueryService_GetActivityDetail(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	now := time.Now()
 	createTestActivity(t, db, 100, "Test Run", now, 8000, 2400, floatPtr(152))
@@ -296,7 +306,7 @@ func TestQueryService_GetActivityDetailByID(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	now := time.Now()
 	// Create a 5km run with stream data
@@ -357,7 +367,7 @@ func TestQueryService_GetTotalActivityCount(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	t.Run("returns zero for empty database", func(t *testing.T) {
 		count, err := svc.GetTotalActivityCount()
@@ -390,7 +400,7 @@ func TestQueryService_GetPeriodStats(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	// Create activities spread across multiple weeks
 	now := time.Now()
@@ -436,7 +446,7 @@ func TestQueryService_GetDashboardData(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	t.Run("handles empty database", func(t *testing.T) {
 		data, err := svc.GetDashboardData()
@@ -488,7 +498,7 @@ func TestQueryService_GetWeeklyComparisons(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	t.Run("handles empty database", func(t *testing.T) {
 		comparisons, err := svc.GetWeeklyComparisons()
@@ -568,7 +578,7 @@ func TestQueryService_GetMonthlyComparisons(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	t.Run("handles empty database", func(t *testing.T) {
 		comparisons, err := svc.GetMonthlyComparisons()
@@ -641,7 +651,7 @@ func TestQueryService_GetPeriodStatsForRange(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 
-	svc := NewQueryService(db, 185)
+	svc := NewQueryService(db, testAthleteConfig())
 
 	now := time.Now()
 	start := now.AddDate(0, 0, -7)

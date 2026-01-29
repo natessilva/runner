@@ -14,6 +14,7 @@ import (
 // DashboardModel is the dashboard screen model
 type DashboardModel struct {
 	queryService *service.QueryService
+	units        Units
 	data         *service.DashboardData
 	loading      bool
 	err          error
@@ -24,9 +25,10 @@ type DashboardModel struct {
 }
 
 // NewDashboardModel creates a new dashboard model
-func NewDashboardModel(qs *service.QueryService, width, height int) DashboardModel {
+func NewDashboardModel(qs *service.QueryService, units Units, width, height int) DashboardModel {
 	m := DashboardModel{
 		queryService: qs,
+		units:        units,
 		loading:      true,
 		width:        width,
 		height:       height,
@@ -204,9 +206,13 @@ func (m DashboardModel) renderFitnessCard() string {
 func (m DashboardModel) renderWeekCard() string {
 	title := cardTitleStyle.Render("This Week")
 
+	// WeekDistance is stored in miles internally, need to convert meters
+	// Note: WeekDistance from service is calculated via metersToMiles, so it's in miles
+	distMeters := m.data.WeekDistance * 1609.34 // Convert back to meters for formatting
+
 	lines := []string{
 		RenderMetric("Runs", fmt.Sprintf("%d", m.data.WeekRunCount), ""),
-		RenderMetric("Distance", fmt.Sprintf("%.1f mi", m.data.WeekDistance), ""),
+		RenderMetric("Distance", m.units.FormatDistance(distMeters), ""),
 		RenderMetric("Time", formatDuration(m.data.WeekTime), ""),
 		RenderMetric("Avg EF", fmt.Sprintf("%.2f", m.data.WeekAvgEF), ""),
 	}
@@ -228,14 +234,26 @@ func (m DashboardModel) renderEFChart() string {
 }
 
 func (m DashboardModel) renderMileageChart() string {
-	title := cardTitleStyle.Render("Weekly Mileage (12 weeks)")
+	title := cardTitleStyle.Render(fmt.Sprintf("Weekly Distance (12 weeks)"))
 
-	data := trimTrailingZeros(m.data.WeeklyMileage)
+	// WeeklyMileage is in miles from service, convert if needed
+	data := m.data.WeeklyMileage
+	caption := m.units.DistanceLabelLong() + "/week"
+	if !m.units.IsMiles() {
+		// Convert miles to km
+		converted := make([]float64, len(data))
+		for i, mi := range data {
+			converted[i] = mi * 1.60934
+		}
+		data = converted
+	}
+
+	data = trimTrailingZeros(data)
 	graph := asciigraph.Plot(data,
 		asciigraph.Height(6),
 		asciigraph.Width(35),
 		asciigraph.Precision(0),
-		asciigraph.Caption("miles/week"),
+		asciigraph.Caption(caption),
 	)
 
 	return cardStyle.Render(lipgloss.JoinVertical(lipgloss.Left, title, graph))
@@ -327,10 +345,10 @@ func (m DashboardModel) renderRecentActivities() string {
 			trimp = fmt.Sprintf("%.0f", *met.TRIMP)
 		}
 
-		row := tableRowStyle.Render(fmt.Sprintf("%-10s  %-20s  %7.1fmi  %6s  %7s  %6s",
+		row := tableRowStyle.Render(fmt.Sprintf("%-10s  %-20s  %8s  %6s  %7s  %6s",
 			a.StartDateLocal.Format("Jan 02"),
 			truncateName(a.Name, 20),
-			a.Distance/1609.34,
+			m.units.FormatDistance(a.Distance),
 			ef,
 			dec,
 			trimp,
