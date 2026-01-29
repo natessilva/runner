@@ -18,6 +18,7 @@ type ActivityDetailModel struct {
 	units        Units
 	activityID   int64
 	detail       *service.ActivityDetail
+	activityPRs  []service.PersonalRecordDisplay
 	viewport     viewport.Model
 	loading      bool
 	err          error
@@ -52,12 +53,19 @@ func (m ActivityDetailModel) Init() tea.Cmd {
 
 type activityDetailLoadedMsg struct {
 	detail *service.ActivityDetail
+	prs    []service.PersonalRecordDisplay
 	err    error
 }
 
 func (m ActivityDetailModel) loadDetail() tea.Msg {
 	detail, err := m.queryService.GetActivityDetailByID(m.activityID)
-	return activityDetailLoadedMsg{detail: detail, err: err}
+	if err != nil {
+		return activityDetailLoadedMsg{detail: nil, prs: nil, err: err}
+	}
+
+	// Also load PRs for this activity
+	prs, _ := m.queryService.GetActivityPRs(m.activityID)
+	return activityDetailLoadedMsg{detail: detail, prs: prs, err: nil}
 }
 
 // Update handles messages
@@ -67,6 +75,7 @@ func (m ActivityDetailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		m.detail = msg.detail
+		m.activityPRs = msg.prs
 		if m.ready {
 			m.viewport.SetContent(m.renderContent())
 		}
@@ -150,6 +159,11 @@ func (m ActivityDetailModel) renderContent() string {
 	// HR chart
 	if len(m.detail.HRData) > 5 {
 		sections = append(sections, m.renderHRChart())
+	}
+
+	// PRs achieved during this activity
+	if len(m.activityPRs) > 0 {
+		sections = append(sections, m.renderActivityPRs())
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
@@ -352,6 +366,30 @@ func (m ActivityDetailModel) renderHRChart() string {
 			asciigraph.Width(50),
 		)
 		lines = append(lines, chart)
+	}
+
+	lines = append(lines, "")
+	return strings.Join(lines, "\n")
+}
+
+func (m ActivityDetailModel) renderActivityPRs() string {
+	var lines []string
+
+	divider := strings.Repeat("─", 56)
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(fmt.Sprintf("── PRs Set This Run %s", divider)))
+
+	for _, pr := range m.activityPRs {
+		var prType string
+		if pr.IsEffort {
+			prType = "Best Effort"
+		} else if pr.Category == "longest_run" || pr.Category == "highest_elevation" || pr.Category == "fastest_pace" {
+			prType = "Achievement"
+		} else {
+			prType = "Distance PR"
+		}
+
+		line := fmt.Sprintf("  %s %s: %s (%s/mi)", prType, pr.CategoryLabel, pr.Time, pr.Pace)
+		lines = append(lines, lipgloss.NewStyle().Foreground(primaryColor).Render(line))
 	}
 
 	lines = append(lines, "")

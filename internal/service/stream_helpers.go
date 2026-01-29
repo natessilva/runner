@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"time"
 
 	"runner/internal/store"
@@ -66,4 +67,16 @@ func getMonday(t time.Time) time.Time {
 	daysFromMonday := (int(t.Weekday()) + 6) % 7 // Monday = 0
 	monday := t.AddDate(0, 0, -daysFromMonday)
 	return time.Date(monday.Year(), monday.Month(), monday.Day(), 0, 0, 0, 0, monday.Location())
+}
+
+// formatDuration formats seconds as "H:MM:SS" or "M:SS"
+func formatDuration(seconds int) string {
+	h := seconds / 3600
+	m := (seconds % 3600) / 60
+	s := seconds % 60
+
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
 }

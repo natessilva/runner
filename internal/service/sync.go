@@ -42,6 +42,7 @@ type SyncResult struct {
 	ActivitiesStored  int
 	StreamsFetched    int
 	MetricsComputed   int
+	PRsComputed       int
 	RunsWithHR        int
 	Errors            []error
 }
@@ -67,6 +68,11 @@ func (s *SyncService) SyncAll(ctx context.Context, progress chan<- SyncProgress)
 	// Phase 3: Compute metrics for activities that need them
 	if err := s.computeMetrics(ctx, progress, result); err != nil {
 		return result, fmt.Errorf("computing metrics: %w", err)
+	}
+
+	// Phase 4: Compute personal records
+	if err := s.computePersonalRecords(ctx, progress, result); err != nil {
+		return result, fmt.Errorf("computing personal records: %w", err)
 	}
 
 	return result, nil
@@ -274,6 +280,228 @@ func (s *SyncService) computeMetrics(ctx context.Context, progress chan<- SyncPr
 	}
 
 	return nil
+}
+
+// computePersonalRecords analyzes activities for personal records
+func (s *SyncService) computePersonalRecords(ctx context.Context, progress chan<- SyncProgress, result *SyncResult) error {
+	// Get all activities with streams for PR analysis
+	activities, err := s.store.ListActivities(500, 0)
+	if err != nil {
+		return fmt.Errorf("getting activities for PR analysis: %w", err)
+	}
+
+	if len(activities) == 0 {
+		return nil
+	}
+
+	if progress != nil {
+		progress <- SyncProgress{Phase: "personal_records", Total: len(activities), Completed: 0}
+	}
+
+	for i, activity := range activities {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		if progress != nil {
+			progress <- SyncProgress{
+				Phase:           "personal_records",
+				Total:           len(activities),
+				Completed:       i,
+				CurrentActivity: activity.Name,
+			}
+		}
+
+		// Skip activities without streams
+		if !activity.StreamsSynced {
+			continue
+		}
+
+		// Check if activity matches a race distance
+		if category, _, matches := analysis.GetMatchingRaceCategory(activity.Distance); matches {
+			pacePerMile := analysis.CalculatePacePerMile(activity.Distance, activity.MovingTime)
+			pr := &store.PersonalRecord{
+				Category:        category,
+				ActivityID:      activity.ID,
+				DistanceMeters:  activity.Distance,
+				DurationSeconds: activity.MovingTime,
+				PacePerMile:     &pacePerMile,
+				AvgHeartrate:    activity.AverageHeartrate,
+				AchievedAt:      activity.StartDate,
+			}
+			if updated, err := s.store.UpsertPersonalRecord(pr); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("saving distance PR for %d: %w", activity.ID, err))
+			} else if updated {
+				result.PRsComputed++
+			}
+		}
+
+		// Check other achievements: longest run, highest elevation, fastest avg pace
+		s.checkOtherAchievements(&activity, result)
+
+		// Get streams for best effort analysis
+		streams, err := s.store.GetStreams(activity.ID)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("getting streams for PR analysis %d: %w", activity.ID, err))
+			continue
+		}
+
+		if len(streams) == 0 {
+			continue
+		}
+
+		// Find best efforts for each target distance
+		for targetDist, category := range analysis.EffortCategories {
+			effort := analysis.FindBestEffort(streams, targetDist)
+			if effort == nil {
+				continue
+			}
+
+			pacePerMile := analysis.CalculatePacePerMile(effort.DistanceMeters, effort.DurationSeconds)
+			var avgHR *float64
+			if effort.AvgHeartrate > 0 {
+				avgHR = &effort.AvgHeartrate
+			}
+			startOffset := effort.StartOffset
+			endOffset := effort.EndOffset
+
+			pr := &store.PersonalRecord{
+				Category:        category,
+				ActivityID:      activity.ID,
+				DistanceMeters:  effort.DistanceMeters,
+				DurationSeconds: effort.DurationSeconds,
+				PacePerMile:     &pacePerMile,
+				AvgHeartrate:    avgHR,
+				AchievedAt:      activity.StartDate,
+				StartOffset:     &startOffset,
+				EndOffset:       &endOffset,
+			}
+			if updated, err := s.store.UpsertPersonalRecord(pr); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("saving effort PR for %d: %w", activity.ID, err))
+			} else if updated {
+				result.PRsComputed++
+			}
+		}
+	}
+
+	if progress != nil {
+		progress <- SyncProgress{
+			Phase:     "personal_records",
+			Total:     len(activities),
+			Completed: len(activities),
+		}
+	}
+
+	return nil
+}
+
+// checkOtherAchievements checks for longest run, highest elevation, fastest average pace
+func (s *SyncService) checkOtherAchievements(activity *store.Activity, result *SyncResult) {
+	// Longest run
+	pacePerMile := analysis.CalculatePacePerMile(activity.Distance, activity.MovingTime)
+	longestPR := &store.PersonalRecord{
+		Category:        "longest_run",
+		ActivityID:      activity.ID,
+		DistanceMeters:  activity.Distance,
+		DurationSeconds: activity.MovingTime,
+		PacePerMile:     &pacePerMile,
+		AvgHeartrate:    activity.AverageHeartrate,
+		AchievedAt:      activity.StartDate,
+	}
+
+	// For longest run, we need special logic - compare by distance not duration
+	existing, _ := s.store.GetPersonalRecordByCategory("longest_run")
+	if existing == nil || activity.Distance > existing.DistanceMeters {
+		// Force update by using a very fast duration to pass the comparison check
+		// Actually we need to handle this differently - longest run compares distance, not time
+		if _, err := s.store.Exec(`
+			INSERT INTO personal_records (
+				category, activity_id, distance_meters, duration_seconds,
+				pace_per_mile, avg_heartrate, achieved_at, start_offset, end_offset
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(category) DO UPDATE SET
+				activity_id = excluded.activity_id,
+				distance_meters = excluded.distance_meters,
+				duration_seconds = excluded.duration_seconds,
+				pace_per_mile = excluded.pace_per_mile,
+				avg_heartrate = excluded.avg_heartrate,
+				achieved_at = excluded.achieved_at
+			WHERE excluded.distance_meters > personal_records.distance_meters
+		`, longestPR.Category, longestPR.ActivityID, longestPR.DistanceMeters, longestPR.DurationSeconds,
+			longestPR.PacePerMile, longestPR.AvgHeartrate, longestPR.AchievedAt.Format(time.RFC3339), nil, nil,
+		); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("saving longest run PR: %w", err))
+		}
+	}
+
+	// Highest elevation gain
+	elevPR := &store.PersonalRecord{
+		Category:        "highest_elevation",
+		ActivityID:      activity.ID,
+		DistanceMeters:  activity.TotalElevationGain, // Store elevation in distance field
+		DurationSeconds: activity.MovingTime,
+		PacePerMile:     &pacePerMile,
+		AvgHeartrate:    activity.AverageHeartrate,
+		AchievedAt:      activity.StartDate,
+	}
+
+	existingElev, _ := s.store.GetPersonalRecordByCategory("highest_elevation")
+	if existingElev == nil || activity.TotalElevationGain > existingElev.DistanceMeters {
+		if _, err := s.store.Exec(`
+			INSERT INTO personal_records (
+				category, activity_id, distance_meters, duration_seconds,
+				pace_per_mile, avg_heartrate, achieved_at, start_offset, end_offset
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(category) DO UPDATE SET
+				activity_id = excluded.activity_id,
+				distance_meters = excluded.distance_meters,
+				duration_seconds = excluded.duration_seconds,
+				pace_per_mile = excluded.pace_per_mile,
+				avg_heartrate = excluded.avg_heartrate,
+				achieved_at = excluded.achieved_at
+			WHERE excluded.distance_meters > personal_records.distance_meters
+		`, elevPR.Category, elevPR.ActivityID, elevPR.DistanceMeters, elevPR.DurationSeconds,
+			elevPR.PacePerMile, elevPR.AvgHeartrate, elevPR.AchievedAt.Format(time.RFC3339), nil, nil,
+		); err != nil {
+			result.Errors = append(result.Errors, fmt.Errorf("saving highest elevation PR: %w", err))
+		}
+	}
+
+	// Fastest average pace (for runs > 1 mile)
+	if activity.Distance >= analysis.Distance1Mile {
+		existingPace, _ := s.store.GetPersonalRecordByCategory("fastest_pace")
+		if existingPace == nil || (existingPace.PacePerMile != nil && pacePerMile < *existingPace.PacePerMile) {
+			pacePR := &store.PersonalRecord{
+				Category:        "fastest_pace",
+				ActivityID:      activity.ID,
+				DistanceMeters:  activity.Distance,
+				DurationSeconds: activity.MovingTime,
+				PacePerMile:     &pacePerMile,
+				AvgHeartrate:    activity.AverageHeartrate,
+				AchievedAt:      activity.StartDate,
+			}
+			if _, err := s.store.Exec(`
+				INSERT INTO personal_records (
+					category, activity_id, distance_meters, duration_seconds,
+					pace_per_mile, avg_heartrate, achieved_at, start_offset, end_offset
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(category) DO UPDATE SET
+					activity_id = excluded.activity_id,
+					distance_meters = excluded.distance_meters,
+					duration_seconds = excluded.duration_seconds,
+					pace_per_mile = excluded.pace_per_mile,
+					avg_heartrate = excluded.avg_heartrate,
+					achieved_at = excluded.achieved_at
+				WHERE excluded.pace_per_mile < personal_records.pace_per_mile
+			`, pacePR.Category, pacePR.ActivityID, pacePR.DistanceMeters, pacePR.DurationSeconds,
+				pacePR.PacePerMile, pacePR.AvgHeartrate, pacePR.AchievedAt.Format(time.RFC3339), nil, nil,
+			); err != nil {
+				result.Errors = append(result.Errors, fmt.Errorf("saving fastest pace PR: %w", err))
+			}
+		}
+	}
 }
 
 // RateLimitStatus returns the current rate limit status from the client

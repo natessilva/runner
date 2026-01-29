@@ -111,6 +111,7 @@ func (m SyncModel) renderStartPrompt() string {
 	lines = append(lines, "  1. Fetch new activities from Strava")
 	lines = append(lines, "  2. Download detailed stream data")
 	lines = append(lines, "  3. Compute fitness metrics")
+	lines = append(lines, "  4. Analyze personal records")
 	lines = append(lines, "")
 
 	// Show rate limit status
@@ -131,6 +132,7 @@ func (m SyncModel) renderProgress() string {
 	lines = append(lines, "  1. Fetching new activities")
 	lines = append(lines, "  2. Downloading stream data")
 	lines = append(lines, "  3. Computing fitness metrics")
+	lines = append(lines, "  4. Analyzing personal records")
 	lines = append(lines, "")
 	lines = append(lines, statusStyle.Render("  This may take a moment..."))
 
@@ -159,6 +161,10 @@ func (m SyncModel) renderSummary() string {
 
 	if r.MetricsComputed > 0 {
 		lines = append(lines, successStyle.Render(fmt.Sprintf("  %d metrics computed", r.MetricsComputed)))
+	}
+
+	if r.PRsComputed > 0 {
+		lines = append(lines, successStyle.Render(fmt.Sprintf("  %d personal records found", r.PRsComputed)))
 	}
 
 	if len(r.Errors) > 0 {

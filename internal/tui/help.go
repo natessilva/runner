@@ -38,7 +38,8 @@ func (m HelpModel) View() string {
 		{"2", "Activities list"},
 		{"3", "Period stats"},
 		{"4 or c", "Trend comparisons"},
-		{"5", "Sync screen"},
+		{"5", "Personal Records"},
+		{"6", "Sync screen"},
 		{"?", "Help (this screen)"},
 		{"q", "Quit"},
 		{"esc", "Back / close help"},
@@ -90,6 +91,14 @@ func (m HelpModel) View() string {
 		{"r", "Refresh"},
 	})
 	sections = append(sections, compareSection)
+
+	// PRs keys
+	prsSection := m.renderSection("Personal Records", []keyHelp{
+		{"j / down", "Scroll down"},
+		{"k / up", "Scroll up"},
+		{"r", "Refresh"},
+	})
+	sections = append(sections, prsSection)
 
 	// Sync keys
 	syncSection := m.renderSection("Sync Screen", []keyHelp{

@@ -75,3 +75,17 @@ type FitnessTrend struct {
 	TotalDistance7d     float64  `db:"total_distance_7d"`
 	TotalTime7d         int      `db:"total_time_7d"`
 }
+
+// PersonalRecord represents a personal best for a specific category
+type PersonalRecord struct {
+	ID              int64     `db:"id"`
+	Category        string    `db:"category"`         // e.g., "distance_5k", "effort_1mi", "longest_run"
+	ActivityID      int64     `db:"activity_id"`
+	DistanceMeters  float64   `db:"distance_meters"`
+	DurationSeconds int       `db:"duration_seconds"`
+	PacePerMile     *float64  `db:"pace_per_mile"`    // seconds per mile
+	AvgHeartrate    *float64  `db:"avg_heartrate"`
+	AchievedAt      time.Time `db:"achieved_at"`
+	StartOffset     *int      `db:"start_offset"`     // for best efforts: start time offset in stream
+	EndOffset       *int      `db:"end_offset"`       // for best efforts: end time offset in stream
+}

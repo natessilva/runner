@@ -101,6 +101,24 @@ func migrate(db *sql.DB) error {
 			value TEXT NOT NULL,
 			updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 		)`,
+
+		// Personal Records (PRs for race distances and best efforts)
+		`CREATE TABLE IF NOT EXISTS personal_records (
+			id INTEGER PRIMARY KEY,
+			category TEXT NOT NULL UNIQUE,
+			activity_id INTEGER NOT NULL,
+			distance_meters REAL NOT NULL,
+			duration_seconds INTEGER NOT NULL,
+			pace_per_mile REAL,
+			avg_heartrate REAL,
+			achieved_at TEXT NOT NULL,
+			start_offset INTEGER,
+			end_offset INTEGER,
+			FOREIGN KEY (activity_id) REFERENCES activities(id) ON DELETE CASCADE
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_personal_records_activity ON personal_records(activity_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_personal_records_category ON personal_records(category)`,
 	}
 
 	for _, m := range migrations {
