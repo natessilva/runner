@@ -69,7 +69,7 @@ func NewApp(db *store.DB, stravaClient *strava.Client, syncService *service.Sync
 		dashboard:    NewDashboardModel(queryService, units, 0, 0),
 		activities:   NewActivitiesModel(queryService, units),
 		stats:        NewStatsModel(queryService, units),
-		comparisons:  NewComparisonsModel(queryService, units),
+		comparisons:  NewComparisonsModel(queryService, units, 0, 0),
 		syncScreen:   NewSyncModel(syncService),
 		help:         NewHelpModel(),
 	}
@@ -101,6 +101,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, a.stats.Init()
 			case "4", "c":
 				a.screen = ScreenComparisons
+				a.comparisons = NewComparisonsModel(a.queryService, a.units, a.width, a.height)
 				return a, a.comparisons.Init()
 			case "5":
 				a.screen = ScreenPRs

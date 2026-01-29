@@ -5,6 +5,7 @@ import (
 
 	"runner/internal/service"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -17,16 +18,33 @@ type ComparisonsModel struct {
 	periodType   string // "weekly" or "monthly"
 	loading      bool
 	err          error
+	viewport     viewport.Model
+	ready        bool
+	width        int
+	height       int
 }
 
 // NewComparisonsModel creates a new comparisons model
-func NewComparisonsModel(qs *service.QueryService, units Units) ComparisonsModel {
-	return ComparisonsModel{
+func NewComparisonsModel(qs *service.QueryService, units Units, width, height int) ComparisonsModel {
+	m := ComparisonsModel{
 		queryService: qs,
 		units:        units,
 		periodType:   "weekly",
 		loading:      true,
+		width:        width,
+		height:       height,
 	}
+
+	if width > 0 && height > 0 {
+		viewportHeight := height - 6
+		if viewportHeight < 10 {
+			viewportHeight = 10
+		}
+		m.viewport = viewport.New(width, viewportHeight)
+		m.ready = true
+	}
+
+	return m
 }
 
 // Init initializes the comparisons screen
@@ -54,11 +72,35 @@ func (m ComparisonsModel) loadComparisons() tea.Msg {
 
 // Update handles messages
 func (m ComparisonsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case comparisonsLoadedMsg:
 		m.loading = false
 		m.err = msg.err
 		m.comparisons = msg.comparisons
+		if m.ready {
+			m.viewport.SetContent(m.renderContent())
+		}
+
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		viewportHeight := msg.Height - 6
+		if viewportHeight < 10 {
+			viewportHeight = 10
+		}
+
+		if !m.ready {
+			m.viewport = viewport.New(msg.Width, viewportHeight)
+			m.viewport.SetContent(m.renderContent())
+			m.ready = true
+		} else {
+			m.viewport.Width = msg.Width
+			m.viewport.Height = viewportHeight
+			m.viewport.SetContent(m.renderContent())
+		}
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -79,7 +121,13 @@ func (m ComparisonsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.loadComparisons
 		}
 	}
-	return m, nil
+
+	// Handle viewport scrolling
+	if m.ready {
+		m.viewport, cmd = m.viewport.Update(msg)
+	}
+
+	return m, cmd
 }
 
 // View renders the comparisons screen
@@ -92,6 +140,17 @@ func (m ComparisonsModel) View() string {
 		return errorStyle.Render(fmt.Sprintf("\n  Error: %v", m.err))
 	}
 
+	if !m.ready {
+		return m.renderContent() + "\n" + statusStyle.Render("  w/m: weekly/monthly  r: refresh")
+	}
+
+	scrollPct := m.viewport.ScrollPercent() * 100
+	scrollInfo := statusStyle.Render(fmt.Sprintf("  scroll: %.0f%% (j/k to scroll, w/m: weekly/monthly, r: refresh)", scrollPct))
+
+	return m.viewport.View() + "\n" + scrollInfo
+}
+
+func (m ComparisonsModel) renderContent() string {
 	var sections []string
 
 	// Title with mode indicator
@@ -111,10 +170,6 @@ func (m ComparisonsModel) View() string {
 	for _, comp := range m.comparisons {
 		sections = append(sections, m.renderComparison(comp))
 	}
-
-	// Help
-	help := statusStyle.Render("\n  w/m: weekly/monthly  r: refresh")
-	sections = append(sections, help)
 
 	return lipgloss.JoinVertical(lipgloss.Left, sections...)
 }
