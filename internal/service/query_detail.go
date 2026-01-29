@@ -232,6 +232,11 @@ func (d *ActivityDetail) calculateSplit(streams []store.StreamPoint, startIdx, e
 }
 
 func (d *ActivityDetail) calculateHRZones(streams []store.StreamPoint, maxHR int, thresholdHR int) []HRZoneTime {
+	// Guard against division by zero - return empty zones if maxHR is invalid
+	if maxHR <= 0 {
+		return nil
+	}
+
 	// Use threshold-based zones if thresholdHR is set, otherwise use %maxHR zones
 	var zones []HRZoneTime
 	var thresholds []float64

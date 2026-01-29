@@ -94,7 +94,15 @@ func (s *SyncService) syncActivities(ctx context.Context, progress chan<- SyncPr
 	lastSyncStr, _ := s.store.GetSyncState("last_activity_sync")
 	var after time.Time
 	if lastSyncStr != "" {
-		after, _ = time.Parse(time.RFC3339, lastSyncStr)
+		var parseErr error
+		after, parseErr = time.Parse(time.RFC3339, lastSyncStr)
+		if parseErr != nil {
+			// Corrupted sync state - log error and sync from beginning
+			syncErr := fmt.Errorf("parsing last sync time %q, will sync from beginning: %w", lastSyncStr, parseErr)
+			result.Errors = append(result.Errors, syncErr)
+			reportError(progress, "activities", syncErr)
+			after = time.Time{} // Reset to zero time
+		}
 	}
 
 	if progress != nil {

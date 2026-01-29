@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sort"
 
 	"runner/internal/store"
 )
@@ -187,14 +188,7 @@ func sortPRsByDistance(prs []PersonalRecordDisplay) {
 		"distance_full": 7,
 	}
 
-	// Simple bubble sort for small slices
-	for i := 0; i < len(prs); i++ {
-		for j := i + 1; j < len(prs); j++ {
-			orderI := order[prs[i].Category]
-			orderJ := order[prs[j].Category]
-			if orderI > orderJ {
-				prs[i], prs[j] = prs[j], prs[i]
-			}
-		}
-	}
+	sort.Slice(prs, func(i, j int) bool {
+		return order[prs[i].Category] < order[prs[j].Category]
+	})
 }
