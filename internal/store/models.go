@@ -89,3 +89,18 @@ type PersonalRecord struct {
 	StartOffset     *int      `db:"start_offset"`     // for best efforts: start time offset in stream
 	EndOffset       *int      `db:"end_offset"`       // for best efforts: end time offset in stream
 }
+
+// RacePrediction represents a predicted race time
+type RacePrediction struct {
+	ID               int64     `db:"id"`
+	TargetDistance   string    `db:"target_distance"`   // "5k", "10k", "half", "marathon"
+	TargetMeters     float64   `db:"target_meters"`
+	PredictedSeconds int       `db:"predicted_seconds"`
+	PredictedPace    float64   `db:"predicted_pace"`    // seconds per mile
+	VDOT             float64   `db:"vdot"`
+	SourceCategory   string    `db:"source_category"`   // PR category used
+	SourceActivityID int64     `db:"source_activity_id"`
+	Confidence       string    `db:"confidence"`        // "high", "medium", "low"
+	ConfidenceScore  float64   `db:"confidence_score"`
+	ComputedAt       time.Time `db:"computed_at"`
+}

@@ -119,6 +119,22 @@ func migrate(db *sql.DB) error {
 
 		`CREATE INDEX IF NOT EXISTS idx_personal_records_activity ON personal_records(activity_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_personal_records_category ON personal_records(category)`,
+
+		// Race Predictions (VDOT-based predictions)
+		`CREATE TABLE IF NOT EXISTS race_predictions (
+			id INTEGER PRIMARY KEY,
+			target_distance TEXT NOT NULL UNIQUE,
+			target_meters REAL NOT NULL,
+			predicted_seconds INTEGER NOT NULL,
+			predicted_pace REAL NOT NULL,
+			vdot REAL NOT NULL,
+			source_category TEXT NOT NULL,
+			source_activity_id INTEGER NOT NULL,
+			confidence TEXT NOT NULL,
+			confidence_score REAL NOT NULL,
+			computed_at TEXT NOT NULL,
+			FOREIGN KEY (source_activity_id) REFERENCES activities(id) ON DELETE CASCADE
+		)`,
 	}
 
 	for _, m := range migrations {

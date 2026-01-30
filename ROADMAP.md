@@ -70,7 +70,7 @@ Track what percentage of running is truly aerobic:
 
 ## Quick Wins
 
-### [ ] Personal Records
+### [x] Personal Records
 
 Track and display PRs for common distances:
 

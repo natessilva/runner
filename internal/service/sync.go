@@ -48,13 +48,14 @@ func reportError(progress chan<- SyncProgress, phase string, err error) {
 
 // SyncResult contains the results of a sync operation
 type SyncResult struct {
-	ActivitiesFetched int
-	ActivitiesStored  int
-	StreamsFetched    int
-	MetricsComputed   int
-	PRsComputed       int
-	RunsWithHR        int
-	Errors            []error
+	ActivitiesFetched    int
+	ActivitiesStored     int
+	StreamsFetched       int
+	MetricsComputed      int
+	PRsComputed          int
+	PredictionsComputed  int
+	RunsWithHR           int
+	Errors               []error
 }
 
 // SyncAll performs a full sync: activities -> streams
@@ -83,6 +84,11 @@ func (s *SyncService) SyncAll(ctx context.Context, progress chan<- SyncProgress)
 	// Phase 4: Compute personal records
 	if err := s.computePersonalRecords(ctx, progress, result); err != nil {
 		return result, fmt.Errorf("computing personal records: %w", err)
+	}
+
+	// Phase 5: Compute race predictions
+	if err := s.computeRacePredictions(ctx, progress, result); err != nil {
+		return result, fmt.Errorf("computing predictions: %w", err)
 	}
 
 	return result, nil
@@ -467,6 +473,79 @@ func (s *SyncService) upsertAchievement(category string, activity *store.Activit
 	} else if updated {
 		result.PRsComputed++
 	}
+}
+
+// computeRacePredictions generates race time predictions based on PRs
+func (s *SyncService) computeRacePredictions(ctx context.Context, progress chan<- SyncProgress, result *SyncResult) error {
+	if progress != nil {
+		progress <- SyncProgress{Phase: "predictions", Total: 1, Completed: 0}
+	}
+
+	// Get all personal records
+	prs, err := s.store.GetAllPersonalRecords()
+	if err != nil {
+		return fmt.Errorf("getting personal records: %w", err)
+	}
+
+	if len(prs) == 0 {
+		// No PRs yet, nothing to predict
+		return nil
+	}
+
+	// Select the best source PR for predictions
+	sourcePR := analysis.SelectBestSourcePR(prs)
+	if sourcePR == nil {
+		// No suitable PR found (all too old or wrong category)
+		return nil
+	}
+
+	// Generate predictions
+	predictions := analysis.GeneratePredictions(sourcePR, nil)
+	if len(predictions) == 0 {
+		return nil
+	}
+
+	// Clear old predictions and insert new ones
+	if err := s.store.DeleteAllRacePredictions(); err != nil {
+		return fmt.Errorf("clearing old predictions: %w", err)
+	}
+
+	now := ctx.Value("now")
+	var computedAt time.Time
+	if t, ok := now.(time.Time); ok {
+		computedAt = t
+	} else {
+		computedAt = time.Now()
+	}
+
+	for _, pred := range predictions {
+		storePred := &store.RacePrediction{
+			TargetDistance:   pred.TargetName,
+			TargetMeters:     pred.TargetMeters,
+			PredictedSeconds: pred.PredictedSeconds,
+			PredictedPace:    pred.PredictedPace,
+			VDOT:             pred.VDOT,
+			SourceCategory:   sourcePR.Category,
+			SourceActivityID: sourcePR.ActivityID,
+			Confidence:       pred.Confidence,
+			ConfidenceScore:  pred.ConfidenceScore,
+			ComputedAt:       computedAt,
+		}
+
+		if err := s.store.UpsertRacePrediction(storePred); err != nil {
+			predErr := fmt.Errorf("saving prediction for %s: %w", pred.TargetName, err)
+			result.Errors = append(result.Errors, predErr)
+			reportError(progress, "predictions", predErr)
+			continue
+		}
+		result.PredictionsComputed++
+	}
+
+	if progress != nil {
+		progress <- SyncProgress{Phase: "predictions", Total: 1, Completed: 1}
+	}
+
+	return nil
 }
 
 // RateLimitStatus returns the current rate limit status from the client

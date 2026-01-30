@@ -20,6 +20,7 @@ const (
 	ScreenStats
 	ScreenComparisons
 	ScreenPRs
+	ScreenPredictions
 	ScreenSync
 	ScreenHelp
 )
@@ -36,6 +37,7 @@ type App struct {
 	stats          StatsModel
 	comparisons    ComparisonsModel
 	prs            PRsModel
+	predictions    PredictionsModel
 	syncScreen     SyncModel
 	help           HelpModel
 
@@ -108,6 +110,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.prs = NewPRsModel(a.queryService, a.units, a.width, a.height)
 				return a, a.prs.Init()
 			case "6":
+				a.screen = ScreenPredictions
+				a.predictions = NewPredictionsModel(a.queryService, a.units, a.width, a.height)
+				return a, a.predictions.Init()
+			case "7":
 				if a.screen != ScreenSync {
 					a.screen = ScreenSync
 					return a, a.syncScreen.Init()
@@ -171,6 +177,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var m tea.Model
 		m, cmd = a.prs.Update(msg)
 		a.prs = m.(PRsModel)
+	case ScreenPredictions:
+		var m tea.Model
+		m, cmd = a.predictions.Update(msg)
+		a.predictions = m.(PredictionsModel)
 	case ScreenSync:
 		var m tea.Model
 		m, cmd = a.syncScreen.Update(msg)
@@ -203,6 +213,8 @@ func (a *App) View() string {
 		content = a.comparisons.View()
 	case ScreenPRs:
 		content = a.prs.View()
+	case ScreenPredictions:
+		content = a.predictions.View()
 	case ScreenSync:
 		content = a.syncScreen.View()
 	case ScreenHelp:
@@ -229,7 +241,8 @@ func (a *App) renderNav() string {
 		{"3", "Stats", ScreenStats},
 		{"4", "Compare", ScreenComparisons},
 		{"5", "PRs", ScreenPRs},
-		{"6", "Sync", ScreenSync},
+		{"6", "Predict", ScreenPredictions},
+		{"7", "Sync", ScreenSync},
 		{"?", "Help", ScreenHelp},
 	}
 
