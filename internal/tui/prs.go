@@ -191,8 +191,13 @@ func (m PRsModel) renderOtherAchievements() string {
 }
 
 func (m PRsModel) sectionHeader(title string) string {
-	divider := strings.Repeat("─", 60)
-	return lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(fmt.Sprintf("── %s %s", title, divider[:60-len(title)-4]))
+	titleLen := len([]rune(title))
+	dividerLen := 60 - titleLen - 4
+	if dividerLen < 0 {
+		dividerLen = 0
+	}
+	divider := strings.Repeat("─", dividerLen)
+	return lipgloss.NewStyle().Bold(true).Foreground(secondaryColor).Render(fmt.Sprintf("── %s %s", title, divider))
 }
 
 func (m PRsModel) tableHeader() string {
