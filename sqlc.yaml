@@ -1,0 +1,29 @@
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "internal/store/queries"
+    schema: "internal/store/schema.sql"
+    gen:
+      go:
+        package: "sqlc"
+        out: "internal/store/sqlc"
+        emit_json_tags: false
+        emit_db_tags: true
+        emit_empty_slices: true
+        overrides:
+          # Time fields stored as TEXT (RFC3339)
+          - column: "auth.expires_at"
+            go_type: "int64"
+          - column: "activities.start_date"
+            go_type: "string"
+          - column: "activities.start_date_local"
+            go_type: "string"
+          - column: "personal_records.achieved_at"
+            go_type: "string"
+          - column: "race_predictions.computed_at"
+            go_type: "string"
+          # Bool fields stored as INTEGER (0/1)
+          - column: "activities.has_heartrate"
+            go_type: "int64"
+          - column: "activities.streams_synced"
+            go_type: "int64"

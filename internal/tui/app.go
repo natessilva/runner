@@ -42,7 +42,7 @@ type App struct {
 	help           HelpModel
 
 	// Services
-	db           *store.DB
+	db           *store.Store
 	queryService *service.QueryService
 	syncService  *service.SyncService
 	stravaClient *strava.Client
@@ -59,7 +59,7 @@ type App struct {
 }
 
 // NewApp creates a new App with all dependencies
-func NewApp(db *store.DB, stravaClient *strava.Client, syncService *service.SyncService, queryService *service.QueryService, displayCfg config.DisplayConfig) *App {
+func NewApp(db *store.Store, stravaClient *strava.Client, syncService *service.SyncService, queryService *service.QueryService, displayCfg config.DisplayConfig) *App {
 	units := NewUnits(displayCfg)
 	return &App{
 		screen:       ScreenDashboard,

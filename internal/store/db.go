@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,14 +10,30 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// DB wraps the SQLite database connection
-type DB struct {
-	*sql.DB
-}
+// ErrNoAuth is returned when no authentication is stored
+var ErrNoAuth = errors.New("no authentication stored")
+
+// ErrActivityNotFound is returned when an activity doesn't exist
+var ErrActivityNotFound = errors.New("activity not found")
+
+// ErrPersonalRecordNotFound is returned when a personal record doesn't exist
+var ErrPersonalRecordNotFound = errors.New("personal record not found")
+
+// ErrPredictionNotFound is returned when a prediction doesn't exist
+var ErrPredictionNotFound = errors.New("prediction not found")
+
+// CompareMode determines how personal records are compared
+type CompareMode int
+
+const (
+	CompareDuration CompareMode = iota // lower duration wins (default)
+	CompareDistance                    // higher distance wins (longest_run)
+	ComparePace                        // lower pace wins (fastest_pace)
+)
 
 // Open opens the SQLite database, creating it if necessary.
 // The database is stored at ~/.runner/data.db
-func Open() (*DB, error) {
+func Open() (*Store, error) {
 	dbPath, err := getDBPath()
 	if err != nil {
 		return nil, fmt.Errorf("getting db path: %w", err)
@@ -45,7 +62,7 @@ func Open() (*DB, error) {
 		return nil, fmt.Errorf("running migrations: %w", err)
 	}
 
-	return &DB{db}, nil
+	return newStore(db), nil
 }
 
 // getDBPath returns the path to the SQLite database file

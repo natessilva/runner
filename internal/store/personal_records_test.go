@@ -9,7 +9,7 @@ import (
 )
 
 // setupTestDB creates an in-memory database for testing
-func setupTestDB(t *testing.T) *DB {
+func setupTestDB(t *testing.T) *Store {
 	t.Helper()
 
 	sqlDB, err := sql.Open("sqlite", ":memory:")
@@ -23,13 +23,13 @@ func setupTestDB(t *testing.T) *DB {
 		t.Fatalf("Failed to enable foreign keys: %v", err)
 	}
 
-	db := &DB{sqlDB}
-
 	// Run migrations
 	if err := migrate(sqlDB); err != nil {
 		sqlDB.Close()
 		t.Fatalf("Failed to run migrations: %v", err)
 	}
+
+	store := newStore(sqlDB)
 
 	// Insert a test activity for foreign key constraints
 	_, err = sqlDB.Exec(`
@@ -59,7 +59,7 @@ func setupTestDB(t *testing.T) *DB {
 		sqlDB.Close()
 	})
 
-	return db
+	return store
 }
 
 func TestUpsertPersonalRecord_CreateNew(t *testing.T) {

@@ -7,12 +7,12 @@ import (
 
 // QueryService provides read-only queries for the TUI
 type QueryService struct {
-	store      *store.DB
+	store      *store.Store
 	athleteCfg config.AthleteConfig
 }
 
 // NewQueryService creates a new query service with athlete config
-func NewQueryService(store *store.DB, athleteCfg config.AthleteConfig) *QueryService {
+func NewQueryService(store *store.Store, athleteCfg config.AthleteConfig) *QueryService {
 	// Apply defaults if not set
 	if athleteCfg.MaxHR == 0 {
 		athleteCfg.MaxHR = DefaultMaxHR

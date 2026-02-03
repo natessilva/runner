@@ -14,12 +14,12 @@ import (
 // SyncService orchestrates syncing data from Strava
 type SyncService struct {
 	client  *strava.Client
-	store   *store.DB
+	store   *store.Store
 	hrZones analysis.HRZones
 }
 
 // NewSyncService creates a new sync service with athlete config for HR calculations
-func NewSyncService(client *strava.Client, store *store.DB, athleteCfg config.AthleteConfig) *SyncService {
+func NewSyncService(client *strava.Client, store *store.Store, athleteCfg config.AthleteConfig) *SyncService {
 	return &SyncService{
 		client:  client,
 		store:   store,

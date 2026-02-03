@@ -117,7 +117,7 @@ func run() error {
 	return nil
 }
 
-func authenticate(ctx context.Context, db *store.DB, cfg *config.Config) error {
+func authenticate(ctx context.Context, db *store.Store, cfg *config.Config) error {
 	oauthCfg := auth.NewOAuthConfig(auth.Config{
 		ClientID:     cfg.Strava.ClientID,
 		ClientSecret: cfg.Strava.ClientSecret,

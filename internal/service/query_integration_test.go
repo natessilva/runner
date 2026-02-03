@@ -21,7 +21,7 @@ func testAthleteConfig() config.AthleteConfig {
 }
 
 // openTestDB creates an in-memory SQLite database with migrations applied
-func openTestDB(t *testing.T) *store.DB {
+func openTestDB(t *testing.T) *store.Store {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", ":memory:")
@@ -126,8 +126,12 @@ func openTestDB(t *testing.T) *store.DB {
 		}
 	}
 
-	// Wrap in store.DB by embedding
-	return &store.DB{DB: db}
+	// Create store using test helper
+	s := store.NewTestStore(db)
+	t.Cleanup(func() {
+		s.Close()
+	})
+	return s
 }
 
 // Helper to create a float64 pointer
@@ -136,7 +140,7 @@ func floatPtr(f float64) *float64 {
 }
 
 // createTestActivity inserts a test activity into the database
-func createTestActivity(t *testing.T, db *store.DB, id int64, name string, startDate time.Time, distance float64, movingTime int, avgHR *float64) {
+func createTestActivity(t *testing.T, db *store.Store, id int64, name string, startDate time.Time, distance float64, movingTime int, avgHR *float64) {
 	t.Helper()
 	activity := &store.Activity{
 		ID:               id,
@@ -158,7 +162,7 @@ func createTestActivity(t *testing.T, db *store.DB, id int64, name string, start
 }
 
 // createTestMetrics inserts test metrics for an activity
-func createTestMetrics(t *testing.T, db *store.DB, activityID int64, ef, trimp *float64) {
+func createTestMetrics(t *testing.T, db *store.Store, activityID int64, ef, trimp *float64) {
 	t.Helper()
 	metrics := &store.ActivityMetrics{
 		ActivityID:       activityID,
@@ -171,7 +175,7 @@ func createTestMetrics(t *testing.T, db *store.DB, activityID int64, ef, trimp *
 }
 
 // createTestStreams inserts test stream data for an activity
-func createTestStreams(t *testing.T, db *store.DB, activityID int64, numPoints int, velocity float64, hr int) {
+func createTestStreams(t *testing.T, db *store.Store, activityID int64, numPoints int, velocity float64, hr int) {
 	t.Helper()
 	points := make([]store.StreamPoint, numPoints)
 	for i := range points {
